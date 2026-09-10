@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f4f6fb" />
+    <meta name="description" content="A calm household planner for the wall tablet." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>Homeboard · Household planner</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div>
+            <p class="eyebrow">HOUSEHOLD PLANNER</p>
+            <h1>Homeboard</h1>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <button class="icon-button" id="settingsButton" type="button" aria-label="Open settings" title="Settings">⚙</button>
+          <button class="primary-button" id="addTaskButton" type="button"><span aria-hidden="true">＋</span> Add task</button>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="planner-card card-surface" aria-labelledby="weekHeading">
+          <div class="planner-toolbar">
+            <div>
+              <p class="eyebrow">YOUR WEEK</p>
+              <div class="week-title-row">
+                <button class="round-button" id="previousWeekButton" type="button" aria-label="Previous week">‹</button>
+                <h2 id="weekHeading">This week</h2>
+                <button class="round-button" id="nextWeekButton" type="button" aria-label="Next week">›</button>
+              </div>
+              <p class="muted" id="weekRange"></p>
+            </div>
+            <button class="text-button" id="todayButton" type="button">Jump to today</button>
+          </div>
+
+          <div class="week-summary" id="weekSummary" aria-live="polite"></div>
+          <div id="weekGrid" aria-live="polite"></div>
+        </section>
+
+        <aside class="side-stack" aria-label="Household lists">
+          <section class="list-card card-surface" aria-labelledby="todoHeading">
+            <div class="list-card-heading">
+              <div>
+                <p class="eyebrow">SMALL WINS</p>
+                <h2 id="todoHeading">To-do list</h2>
+              </div>
+              <span class="count-pill" id="todoCount">0</span>
+            </div>
+            <form class="quick-add" id="todoForm">
+              <label class="sr-only" for="todoInput">Add a to-do</label>
+              <input id="todoInput" type="text" placeholder="Add something small…" autocomplete="off" maxlength="120" />
+              <button class="add-list-button" type="submit" aria-label="Add to-do">＋</button>
+            </form>
+            <div class="list-items" id="todoList"></div>
+            <div class="list-card-footer">
+              <button class="subtle-button" id="clearTodosButton" type="button">Clear completed</button>
+            </div>
+          </section>
+
+          <section class="list-card card-surface grocery-card" aria-labelledby="groceryHeading">
+            <div class="list-card-heading">
+              <div>
+                <p class="eyebrow">NEXT SHOP</p>
+                <h2 id="groceryHeading">Grocery list</h2>
+              </div>
+              <span class="count-pill green" id="groceryCount">0</span>
+            </div>
+            <form class="quick-add" id="groceryForm">
+              <label class="sr-only" for="groceryInput">Add groceries</label>
+              <input id="groceryInput" type="text" placeholder="Add groceries…" autocomplete="off" maxlength="120" />
+              <button class="add-list-button green-button" type="submit" aria-label="Add grocery">＋</button>
+            </form>
+            <div class="list-items" id="groceryList"></div>
+            <div class="list-card-footer">
+              <button class="subtle-button" id="clearGroceriesButton" type="button">Clear completed</button>
+            </div>
+          </section>
+
+          <div class="save-status" id="saveStatus"><span class="status-dot"></span> Saved on this tablet</div>
+        </aside>
+      </main>
+    </div>
+
+    <dialog class="task-dialog" id="taskDialog" aria-labelledby="dialogTitle">
+      <form method="dialog" id="taskForm" class="task-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">PLAN AHEAD</p>
+            <h2 id="dialogTitle">Add a task</h2>
+          </div>
+          <button class="close-button" id="closeDialogButton" type="button" aria-label="Close">×</button>
+        </div>
+
+        <label class="field-label" for="taskTitle">What needs doing?</label>
+        <input class="large-input" id="taskTitle" name="title" type="text" placeholder="e.g. Put the garbage outside" required maxlength="120" autocomplete="off" />
+
+        <div class="form-row">
+          <div class="field-group">
+            <label class="field-label" for="taskDate">Date</label>
+            <input class="large-input" id="taskDate" name="date" type="date" required />
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="taskTime">Time <span class="optional">optional</span></label>
+            <input class="large-input" id="taskTime" name="time" type="time" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field-group">
+            <label class="field-label" for="taskAssignee">Who?</label>
+            <select class="large-input" id="taskAssignee" name="assignee">
+              <option value="both">Both of us</option>
+              <option value="me">Me</option>
+              <option value="partner">Partner</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="taskType">Type</label>
+            <select class="large-input" id="taskType" name="kind">
+              <option value="task">Household task</option>
+              <option value="expiry">Use-by reminder</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="field-label" for="taskRepeat">Repeat</label>
+        <select class="large-input" id="taskRepeat" name="recurrence">
+          <option value="none">Does not repeat</option>
+          <option value="weekly">Every week</option>
+          <option value="biweekly">Every 2 weeks</option>
+          <option value="monthly">Every month</option>
+        </select>
+
+        <div class="dialog-actions">
+          <button class="secondary-button" id="cancelDialogButton" type="button">Cancel</button>
+          <button class="primary-button" type="submit">Save task</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="settings-dialog" id="settingsDialog" aria-labelledby="settingsTitle">
+      <form method="dialog" class="task-form" id="settingsForm">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">HOUSEHOLD</p>
+            <h2 id="settingsTitle">Settings</h2>
+          </div>
+          <button class="close-button" id="closeSettingsButton" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="settings-copy">This first version saves everything in this browser on this tablet. You can back it up or restore it whenever you like.</p>
+        <div class="settings-actions">
+          <button class="secondary-button" id="exportButton" type="button">Download backup</button>
+          <label class="secondary-button file-button" for="importInput">Restore backup<input id="importInput" type="file" accept="application/json" /></label>
+        </div>
+        <div class="settings-note"><span aria-hidden="true">✦</span> Phone syncing can be added later without changing the planner layout.</div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js" defer></script>
+  </body>
+</html>
