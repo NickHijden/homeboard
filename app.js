@@ -13,6 +13,7 @@ const els = {
   weekSummary: document.querySelector('#weekSummary'),
   weekGrid: document.querySelector('#weekGrid'),
   addTaskButton: document.querySelector('#addTaskButton'),
+  installButton: document.querySelector('#installButton'),
   previousWeekButton: document.querySelector('#previousWeekButton'),
   nextWeekButton: document.querySelector('#nextWeekButton'),
   todayButton: document.querySelector('#todayButton'),
@@ -44,6 +45,8 @@ const els = {
   settingsForm: document.querySelector('#settingsForm'),
   exportButton: document.querySelector('#exportButton'),
   importInput: document.querySelector('#importInput'),
+  installDialog: document.querySelector('#installDialog'),
+  closeInstallButton: document.querySelector('#closeInstallButton'),
 };
 
 const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -55,6 +58,7 @@ registerServiceWorker();
 
 function bindEvents() {
   els.addTaskButton.addEventListener('click', () => openTaskDialog());
+  els.installButton.addEventListener('click', () => openDialog(els.installDialog));
   els.previousWeekButton.addEventListener('click', () => moveWeek(-1));
   els.nextWeekButton.addEventListener('click', () => moveWeek(1));
   els.todayButton.addEventListener('click', () => {
@@ -63,8 +67,8 @@ function bindEvents() {
   });
 
   els.taskForm.addEventListener('submit', handleTaskSubmit);
-  els.closeDialogButton.addEventListener('click', () => els.taskDialog.close());
-  els.cancelDialogButton.addEventListener('click', () => els.taskDialog.close());
+  els.closeDialogButton.addEventListener('click', () => closeDialog(els.taskDialog));
+  els.cancelDialogButton.addEventListener('click', () => closeDialog(els.taskDialog));
   els.taskDialog.addEventListener('click', closeDialogOnBackdrop);
 
   els.todoForm.addEventListener('submit', (event) => {
@@ -88,14 +92,18 @@ function bindEvents() {
   els.clearTodosButton.addEventListener('click', () => clearCompleted('todos'));
   els.clearGroceriesButton.addEventListener('click', () => clearCompleted('groceries'));
 
-  els.settingsButton.addEventListener('click', () => els.settingsDialog.showModal());
-  els.closeSettingsButton.addEventListener('click', () => els.settingsDialog.close());
+  els.settingsButton.addEventListener('click', () => openDialog(els.settingsDialog));
+  els.closeSettingsButton.addEventListener('click', () => closeDialog(els.settingsDialog));
   els.settingsDialog.addEventListener('click', (event) => {
-    if (event.target === els.settingsDialog) els.settingsDialog.close();
+    if (event.target === els.settingsDialog) closeDialog(els.settingsDialog);
   });
   els.settingsForm.addEventListener('submit', (event) => event.preventDefault());
   els.exportButton.addEventListener('click', exportBackup);
   els.importInput.addEventListener('change', importBackup);
+  els.closeInstallButton.addEventListener('click', () => closeDialog(els.installDialog));
+  els.installDialog.addEventListener('click', (event) => {
+    if (event.target === els.installDialog) closeDialog(els.installDialog);
+  });
 }
 
 function render() {
@@ -121,7 +129,8 @@ function renderWeekHeader() {
 function renderWeek() {
   const todayKey = dateKey(new Date());
   const days = Array.from({ length: 7 }, (_, index) => addDays(state.weekStart, index));
-  const occurrences = days.flatMap((day) => getOccurrencesForDay(day));
+  const occurrences = [];
+  days.forEach((day) => getOccurrencesForDay(day).forEach((occurrence) => occurrences.push(occurrence)));
   const completedCount = occurrences.filter((item) => isCompleted(item.task.id, item.dateKey)).length;
   const openCount = occurrences.length - completedCount;
   const expiryCount = occurrences.filter((item) => item.task.kind === 'expiry' && !isCompleted(item.task.id, item.dateKey)).length;
@@ -240,7 +249,7 @@ function handleTaskSubmit(event) {
     recurrence: String(formData.get('recurrence') || 'none'),
   });
   persist();
-  els.taskDialog.close();
+  closeDialog(els.taskDialog);
   state.weekStart = startOfWeek(parseDate(date));
   render();
   showToast('Task added to the week');
@@ -249,7 +258,7 @@ function handleTaskSubmit(event) {
 function openTaskDialog() {
   els.taskForm.reset();
   els.taskDate.value = dateKey(new Date());
-  els.taskDialog.showModal();
+  openDialog(els.taskDialog);
   window.setTimeout(() => els.taskTitle.focus(), 30);
 }
 
@@ -329,7 +338,8 @@ function exportBackup() {
 }
 
 function importBackup(event) {
-  const file = event.target.files?.[0];
+  const files = event.target.files;
+  const file = files && files.length ? files[0] : null;
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
@@ -344,7 +354,7 @@ function importBackup(event) {
       };
       persist();
       render();
-      els.settingsDialog.close();
+      closeDialog(els.settingsDialog);
       showToast('Backup restored');
     } catch {
       showToast('That backup file could not be restored');
@@ -410,7 +420,25 @@ function registerServiceWorker() {
 }
 
 function closeDialogOnBackdrop(event) {
-  if (event.target === els.taskDialog) els.taskDialog.close();
+  if (event.target === els.taskDialog) closeDialog(els.taskDialog);
+}
+
+function openDialog(dialog) {
+  if (typeof dialog.showModal === 'function') {
+    dialog.showModal();
+    return;
+  }
+  dialog.setAttribute('open', 'open');
+  document.body.classList.add('modal-open');
+}
+
+function closeDialog(dialog) {
+  if (typeof dialog.close === 'function') {
+    dialog.close();
+  } else {
+    dialog.removeAttribute('open');
+  }
+  document.body.classList.remove('modal-open');
 }
 
 function completionKey(taskId, occurrenceDate) { return `${taskId}::${occurrenceDate}`; }

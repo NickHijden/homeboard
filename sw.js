@@ -1,4 +1,4 @@
-const CACHE_NAME = 'homeboard-shell-v2';
+const CACHE_NAME = 'homeboard-shell-v3';
 const SHELL = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
