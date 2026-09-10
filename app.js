@@ -2,11 +2,15 @@
 // look empty even though the old events still exist in Safari's storage.
 const STORAGE_KEY = 'homeboard-household-planner-v1';
 const BACKUP_STORAGE_KEY = 'homeboard-household-planner-last-known-good-v1';
+const IDB_NAME = 'homeboard-household-planner-storage';
+const IDB_STORE = 'planner-data';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
   'homeboard-data',
 ];
+
+let loadedDataFromStorage = false;
 
 const state = {
   data: loadData(),
@@ -60,8 +64,9 @@ const shortWeekdayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
 render();
 bindEvents();
-persist();
 registerServiceWorker();
+if (loadedDataFromStorage) mirrorDataToIndexedDB(state.data);
+recoverFromIndexedDB();
 
 function bindEvents() {
   if (!els.addEventButton || !els.eventDialog || !els.taskForm) return;
@@ -500,7 +505,10 @@ function loadData() {
     const keysToTry = [STORAGE_KEY, BACKUP_STORAGE_KEY].concat(LEGACY_STORAGE_KEYS);
     for (let index = 0; index < keysToTry.length; index += 1) {
       const recovered = readStoredData(keysToTry[index]);
-      if (recovered) return recovered;
+      if (recovered) {
+        loadedDataFromStorage = true;
+        return recovered;
+      }
     }
   } catch (error) {
     console.warn('Homeboard data could not be loaded', error);
@@ -514,13 +522,7 @@ function readStoredData(key) {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     const stored = parsed && parsed.data && !Array.isArray(parsed.data) ? parsed.data : parsed;
-    if (!stored || !Array.isArray(stored.tasks) || !Array.isArray(stored.todos) || !Array.isArray(stored.groceries)) return null;
-    return {
-      tasks: stored.tasks.map(normalizeTask),
-      todos: stored.todos.map(normalizeListItem),
-      groceries: stored.groceries.map(normalizeListItem),
-      completions: stored.completions && typeof stored.completions === 'object' ? stored.completions : {},
-    };
+    return normalizePlannerData(stored);
   } catch (error) {
     return null;
   }
@@ -543,6 +545,16 @@ function normalizeListItem(item) {
   normalized.title = String(normalized.title || '').trim();
   normalized.completed = Boolean(normalized.completed);
   return normalized;
+}
+
+function normalizePlannerData(stored) {
+  if (!stored || !Array.isArray(stored.tasks) || !Array.isArray(stored.todos) || !Array.isArray(stored.groceries)) return null;
+  return {
+    tasks: stored.tasks.map(normalizeTask),
+    todos: stored.todos.map(normalizeListItem),
+    groceries: stored.groceries.map(normalizeListItem),
+    completions: stored.completions && typeof stored.completions === 'object' ? stored.completions : {},
+  };
 }
 
 function createStarterData() {
@@ -575,11 +587,62 @@ function persist() {
     // after updating or reinstalling a Home Screen shortcut.
     localStorage.setItem(STORAGE_KEY, serialized);
     localStorage.setItem(BACKUP_STORAGE_KEY, serialized);
+    mirrorDataToIndexedDB(state.data);
     els.saveStatus.innerHTML = '<span class="status-dot"></span> Saved on this tablet';
   } catch (error) {
     els.saveStatus.innerHTML = '<span class="status-dot" style="background:#e5a34b"></span> Storage is unavailable';
     console.warn('Homeboard data could not be saved', error);
   }
+}
+
+function openPlannerDatabase(callback) {
+  if (!window.indexedDB) return;
+  try {
+    const request = window.indexedDB.open(IDB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(IDB_STORE)) request.result.createObjectStore(IDB_STORE);
+    };
+    request.onsuccess = () => callback(request.result);
+    request.onerror = () => {};
+  } catch (error) {
+    // IndexedDB is an additional recovery layer; localStorage remains primary.
+  }
+}
+
+function mirrorDataToIndexedDB(data) {
+  openPlannerDatabase((database) => {
+    try {
+      const transaction = database.transaction([IDB_STORE], 'readwrite');
+      transaction.objectStore(IDB_STORE).put(JSON.parse(JSON.stringify(data)), 'current');
+      transaction.oncomplete = () => database.close();
+      transaction.onerror = () => database.close();
+    } catch (error) {
+      database.close();
+    }
+  });
+}
+
+function recoverFromIndexedDB() {
+  if (loadedDataFromStorage || !window.indexedDB) return;
+  openPlannerDatabase((database) => {
+    try {
+      const transaction = database.transaction([IDB_STORE], 'readonly');
+      const request = transaction.objectStore(IDB_STORE).get('current');
+      request.onsuccess = () => {
+        const recovered = normalizePlannerData(request.result);
+        database.close();
+        if (!recovered) return;
+        state.data = recovered;
+        loadedDataFromStorage = true;
+        persist();
+        render();
+        showToast('Your saved planner data was recovered');
+      };
+      request.onerror = () => database.close();
+    } catch (error) {
+      database.close();
+    }
+  });
 }
 
 function saveAndRender() {
@@ -593,7 +656,7 @@ function registerServiceWorker() {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (hadController) window.location.reload();
     });
-    navigator.serviceWorker.register('./sw.js?v=20260910-3').then((registration) => {
+    navigator.serviceWorker.register('./sw.js?v=20260910-4').then((registration) => {
       if (registration && typeof registration.update === 'function') registration.update();
     }).catch(() => {});
   }
