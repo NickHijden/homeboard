@@ -12,18 +12,18 @@ const els = {
   weekRange: document.querySelector('#weekRange'),
   weekSummary: document.querySelector('#weekSummary'),
   weekGrid: document.querySelector('#weekGrid'),
-  addTaskButton: document.querySelector('#addTaskButton'),
-  installButton: document.querySelector('#installButton'),
+  addEventButton: document.querySelector('#addEventButton'),
   previousWeekButton: document.querySelector('#previousWeekButton'),
   nextWeekButton: document.querySelector('#nextWeekButton'),
   todayButton: document.querySelector('#todayButton'),
-  taskDialog: document.querySelector('#taskDialog'),
+  eventDialog: document.querySelector('#eventDialog'),
   taskForm: document.querySelector('#taskForm'),
   closeDialogButton: document.querySelector('#closeDialogButton'),
   cancelDialogButton: document.querySelector('#cancelDialogButton'),
   taskTitle: document.querySelector('#taskTitle'),
   taskDate: document.querySelector('#taskDate'),
-  taskTime: document.querySelector('#taskTime'),
+  eventStart: document.querySelector('#eventStart'),
+  eventEnd: document.querySelector('#eventEnd'),
   taskAssignee: document.querySelector('#taskAssignee'),
   taskType: document.querySelector('#taskType'),
   taskRepeat: document.querySelector('#taskRepeat'),
@@ -45,8 +45,6 @@ const els = {
   settingsForm: document.querySelector('#settingsForm'),
   exportButton: document.querySelector('#exportButton'),
   importInput: document.querySelector('#importInput'),
-  installDialog: document.querySelector('#installDialog'),
-  closeInstallButton: document.querySelector('#closeInstallButton'),
 };
 
 const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -57,8 +55,7 @@ bindEvents();
 registerServiceWorker();
 
 function bindEvents() {
-  els.addTaskButton.addEventListener('click', () => openTaskDialog());
-  els.installButton.addEventListener('click', () => openDialog(els.installDialog));
+  els.addEventButton.addEventListener('click', () => openEventDialog());
   els.previousWeekButton.addEventListener('click', () => moveWeek(-1));
   els.nextWeekButton.addEventListener('click', () => moveWeek(1));
   els.todayButton.addEventListener('click', () => {
@@ -67,9 +64,9 @@ function bindEvents() {
   });
 
   els.taskForm.addEventListener('submit', handleTaskSubmit);
-  els.closeDialogButton.addEventListener('click', () => closeDialog(els.taskDialog));
-  els.cancelDialogButton.addEventListener('click', () => closeDialog(els.taskDialog));
-  els.taskDialog.addEventListener('click', closeDialogOnBackdrop);
+  els.closeDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
+  els.cancelDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
+  els.eventDialog.addEventListener('click', closeDialogOnBackdrop);
 
   els.todoForm.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -100,10 +97,6 @@ function bindEvents() {
   els.settingsForm.addEventListener('submit', (event) => event.preventDefault());
   els.exportButton.addEventListener('click', exportBackup);
   els.importInput.addEventListener('change', importBackup);
-  els.closeInstallButton.addEventListener('click', () => closeDialog(els.installDialog));
-  els.installDialog.addEventListener('click', (event) => {
-    if (event.target === els.installDialog) closeDialog(els.installDialog);
-  });
 }
 
 function render() {
@@ -134,7 +127,7 @@ function renderWeek() {
   const completedCount = occurrences.filter((item) => isCompleted(item.task.id, item.dateKey)).length;
   const openCount = occurrences.length - completedCount;
   const expiryCount = occurrences.filter((item) => item.task.kind === 'expiry' && !isCompleted(item.task.id, item.dateKey)).length;
-  els.weekSummary.innerHTML = `<span class="summary-dot"></span><span><strong>${openCount} ${openCount === 1 ? 'thing' : 'things'}</strong> on the board${expiryCount ? ` · <strong class="expiry-summary">${expiryCount} use-by ${expiryCount === 1 ? 'reminder' : 'reminders'}</strong>` : ''}${completedCount ? ` · ${completedCount} done` : ''}</span>`;
+  els.weekSummary.innerHTML = `<span class="summary-dot"></span><span><strong>${openCount} ${openCount === 1 ? 'event' : 'events'}</strong> on the board${expiryCount ? ` · <strong class="expiry-summary">${expiryCount} use-by ${expiryCount === 1 ? 'reminder' : 'reminders'}</strong>` : ''}${completedCount ? ` · ${completedCount} done` : ''}</span>`;
 
   els.weekGrid.innerHTML = '';
   const wrapper = document.createElement('div');
@@ -174,14 +167,16 @@ function createTaskElement({ task, dateKey: occurrenceDate }) {
   const item = document.createElement('label');
   item.className = `task-item${task.kind === 'expiry' ? ' expiry' : ''}`;
   const assigneeLabel = task.assignee === 'me' ? 'Me' : task.assignee === 'partner' ? 'Partner' : 'Both';
+  const assigneeClass = task.assignee === 'me' ? 'assignee-me' : task.assignee === 'partner' ? 'assignee-partner' : 'assignee-both';
   const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'monthly' ? 'Every month' : '';
+  const eventTime = formatEventTime(task);
   item.innerHTML = `
     <input class="task-check" type="checkbox" data-task-id="${escapeAttribute(task.id)}" data-occurrence-date="${occurrenceDate}" aria-label="Mark ${escapeAttribute(task.title)} done" />
     <span class="task-content">
       <span class="task-title">${escapeHtml(task.title)}</span>
       <span class="task-meta">
-        ${task.time ? `<span class="task-time">${formatTime(task.time)}</span>` : ''}
-        <span class="assignee-chip"><span aria-hidden="true">●</span>${assigneeLabel}</span>
+        ${eventTime ? `<span class="task-time">${eventTime}</span>` : '<span class="task-time untimed">Any time</span>'}
+        <span class="assignee-chip ${assigneeClass}"><span class="assignee-dot" aria-hidden="true"></span>${assigneeLabel}</span>
         ${task.kind === 'expiry' ? '<span aria-hidden="true">⌛</span>' : ''}
         ${recurrenceLabel ? `<span class="recurrence-icon" title="${recurrenceLabel}" aria-label="${recurrenceLabel}">↻</span>` : ''}
       </span>
@@ -215,8 +210,8 @@ function isDueOn(task, day) {
 }
 
 function sortOccurrences(left, right) {
-  const leftTime = left.task.time || '99:99';
-  const rightTime = right.task.time || '99:99';
+  const leftTime = left.task.startTime || '99:99';
+  const rightTime = right.task.startTime || '99:99';
   return leftTime.localeCompare(rightTime) || left.task.title.localeCompare(right.task.title);
 }
 
@@ -238,27 +233,34 @@ function handleTaskSubmit(event) {
   const formData = new FormData(els.taskForm);
   const title = String(formData.get('title') || '').trim();
   const date = String(formData.get('date') || '');
+  const startTime = String(formData.get('startTime') || '');
+  const endTime = String(formData.get('endTime') || '');
   if (!title || !date) return;
+  if (startTime && endTime && endTime < startTime) {
+    showToast('End time must be after start time');
+    return;
+  }
   state.data.tasks.push({
     id: createId(),
     title,
     date,
-    time: String(formData.get('time') || ''),
+    startTime,
+    endTime,
     assignee: String(formData.get('assignee') || 'both'),
     kind: String(formData.get('kind') || 'task'),
     recurrence: String(formData.get('recurrence') || 'none'),
   });
   persist();
-  closeDialog(els.taskDialog);
+  closeDialog(els.eventDialog);
   state.weekStart = startOfWeek(parseDate(date));
   render();
-  showToast('Task added to the week');
+  showToast('Event added to the week');
 }
 
-function openTaskDialog() {
+function openEventDialog() {
   els.taskForm.reset();
   els.taskDate.value = dateKey(new Date());
-  openDialog(els.taskDialog);
+  openDialog(els.eventDialog);
   window.setTimeout(() => els.taskTitle.focus(), 30);
 }
 
@@ -368,7 +370,12 @@ function loadData() {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (stored && Array.isArray(stored.tasks) && Array.isArray(stored.todos) && Array.isArray(stored.groceries)) {
-      return { ...stored, completions: stored.completions || {} };
+      return {
+        tasks: stored.tasks.map(normalizeTask),
+        todos: stored.todos,
+        groceries: stored.groceries,
+        completions: stored.completions || {},
+      };
     }
   } catch (error) {
     console.warn('Homeboard data could not be loaded', error);
@@ -376,14 +383,24 @@ function loadData() {
   return createStarterData();
 }
 
+function normalizeTask(task) {
+  const normalized = {};
+  Object.keys(task || {}).forEach((key) => { normalized[key] = task[key]; });
+  normalized.id = normalized.id || createId();
+  normalized.startTime = normalized.startTime || normalized.time || '';
+  normalized.endTime = normalized.endTime || '';
+  delete normalized.time;
+  return normalized;
+}
+
 function createStarterData() {
   const today = new Date();
   const weekStart = startOfWeek(today);
   return {
     tasks: [
-      { id: createId(), title: 'Put the garbage outside', date: dateKey(addDays(weekStart, 3)), time: '20:00', assignee: 'both', kind: 'task', recurrence: 'weekly' },
-      { id: createId(), title: 'Water the plants', date: dateKey(addDays(weekStart, 1)), time: '', assignee: 'both', kind: 'task', recurrence: 'biweekly' },
-      { id: createId(), title: 'Use the chicken', date: dateKey(addDays(today, 3)), time: '', assignee: 'both', kind: 'expiry', recurrence: 'none' },
+      { id: createId(), title: 'Put the garbage outside', date: dateKey(addDays(weekStart, 3)), startTime: '20:00', endTime: '20:15', assignee: 'both', kind: 'task', recurrence: 'weekly' },
+      { id: createId(), title: 'Water the plants', date: dateKey(addDays(weekStart, 1)), startTime: '18:00', endTime: '18:20', assignee: 'both', kind: 'task', recurrence: 'biweekly' },
+      { id: createId(), title: 'Use the chicken', date: dateKey(addDays(today, 3)), startTime: '', endTime: '', assignee: 'both', kind: 'expiry', recurrence: 'none' },
     ],
     todos: [
       { id: createId(), title: 'Check the mailbox', completed: false },
@@ -420,7 +437,7 @@ function registerServiceWorker() {
 }
 
 function closeDialogOnBackdrop(event) {
-  if (event.target === els.taskDialog) closeDialog(els.taskDialog);
+  if (event.target === els.eventDialog) closeDialog(els.eventDialog);
 }
 
 function openDialog(dialog) {
@@ -452,6 +469,14 @@ function differenceInDays(start, end) { return Math.round((end - start) / 864000
 function formatShortDate(date) { return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' }).format(date); }
 function formatLongDate(date) { return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long', year: 'numeric' }).format(date); }
 function formatMonth(date) { return new Intl.DateTimeFormat(undefined, { month: 'long' }).format(date); }
+function formatEventTime(task) {
+  const start = task.startTime || '';
+  const end = task.endTime || '';
+  if (start && end) return `${formatTime(start)} – ${formatTime(end)}`;
+  if (start) return `From ${formatTime(start)}`;
+  if (end) return `Until ${formatTime(end)}`;
+  return '';
+}
 function formatTime(time) { const [hours, minutes] = time.split(':').map(Number); const suffix = hours >= 12 ? 'PM' : 'AM'; const displayHour = hours % 12 || 12; return `${displayHour}:${String(minutes).padStart(2, '0')} ${suffix}`; }
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character])); }
 function escapeAttribute(value) { return escapeHtml(value); }

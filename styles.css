@@ -103,9 +103,17 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .task-content { min-width: 0; }
 .task-title { margin: 0; color: #3d414b; font-size: 12px; font-weight: 700; line-height: 1.32; }
 .task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 7px; color: #989ca8; font-size: 10px; }
-.task-time { color: var(--violet); font-weight: 700; }
+.task-time { color: var(--violet); font-size: 10px; font-weight: 700; letter-spacing: -.01em; }
+.task-time.untimed { color: #a8abb5; font-weight: 500; }
 .task-item.expiry .task-time { color: #ce8c2f; }
 .assignee-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 5px; border-radius: 5px; background: #f4f4f9; }
+.assignee-dot { width: 6px; height: 6px; border-radius: 50%; background: #a8abb5; }
+.assignee-me { background: var(--violet-soft); color: var(--violet-dark); }
+.assignee-me .assignee-dot { background: var(--violet); }
+.assignee-partner { background: var(--mint-soft); color: #278b6e; }
+.assignee-partner .assignee-dot { background: var(--mint); }
+.assignee-both { background: var(--amber-soft); color: #9d733c; }
+.assignee-both .assignee-dot { background: var(--amber); }
 .task-item.expiry .assignee-chip { background: rgba(255,255,255,.72); }
 .recurrence-icon { color: #aaadb8; }
 
@@ -142,10 +150,8 @@ dialog { display: none; position: fixed; top: 50%; left: 50%; z-index: 1000; max
 dialog[open] { display: block; }
 dialog::backdrop { background: rgba(38, 42, 64, .35); backdrop-filter: blur(3px); }
 body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 900; background: rgba(38, 42, 64, .35); }
-.install-button span { margin-right: 4px; font-size: 18px; font-weight: 400; vertical-align: -1px; }
 .task-dialog { width: 490px; }
 .settings-dialog { width: 430px; }
-.install-dialog { width: 470px; }
 .task-form { padding: 28px; }
 .dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 25px; }
 .dialog-heading h2 { font-size: 24px; }
@@ -163,9 +169,6 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .file-button input { display: none; }
 .settings-note { display: flex; gap: 8px; margin-top: 22px; padding: 12px; border-radius: 11px; background: var(--mint-soft); color: #318e73; font-size: 11px; line-height: 1.45; }
 .settings-note span { color: var(--mint); }
-.install-steps { margin: 0 0 19px; padding-left: 24px; color: #555a65; font-size: 13px; line-height: 1.65; }
-.install-steps li { padding-left: 4px; margin-bottom: 9px; }
-.install-note { margin: 0; padding: 12px; border-radius: 11px; background: var(--amber-soft); color: #9b713a; font-size: 11px; line-height: 1.5; }
 
 .toast { position: fixed; right: 24px; bottom: 24px; display: flex; align-items: center; gap: 12px; max-width: calc(100% - 48px); padding: 12px 14px 12px 16px; border-radius: 13px; background: #242832; color: #fff; box-shadow: 0 14px 35px rgba(24, 27, 37, .22); font-size: 12px; opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .2s, transform .2s; }
 .toast.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
@@ -190,7 +193,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 @media (max-width: 560px) {
   .app-shell { width: calc(100% - 22px); padding-top: 18px; }
   .topbar { margin-bottom: 19px; }
-  .topbar-actions .icon-button, .topbar-actions .install-button { display: none; }
+  .topbar-actions .icon-button { display: none; }
   .topbar-actions .primary-button { padding: 0 12px; font-size: 12px; }
   h1 { font-size: 21px; }
   .brand-mark { width: 37px; height: 37px; padding: 9px 8px; border-radius: 12px; }
@@ -207,4 +210,55 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+/* Wall-tablet landscape layout: keep the complete week visible without page scrolling. */
+@media (min-width: 760px) and (orientation: landscape) {
+  html, body { height: 100%; overflow: hidden; }
+  .app-shell { width: calc(100% - 22px); height: 100vh; padding: 16px 0; }
+  .topbar { margin-bottom: 12px; }
+  .topbar-actions { gap: 6px; }
+  .topbar-actions .secondary-button { padding: 0 10px; font-size: 11px; }
+  .topbar-actions .primary-button { padding: 0 12px; font-size: 11px; }
+  .dashboard-grid { height: calc(100vh - 82px); gap: 12px; }
+  .planner-card { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 16px; }
+  .planner-toolbar { gap: 10px; }
+  .week-title-row { gap: 6px; }
+  .week-title-row h2 { font-size: 21px; }
+  .muted { margin-top: 4px; font-size: 11px; }
+  .week-summary { min-height: 31px; margin: 12px 0 10px; padding: 6px 10px; font-size: 10px; }
+  #weekGrid { flex: 1 1 auto; min-height: 0; }
+  .week-grid { height: 100%; min-width: 0; width: 100%; gap: 5px; }
+  .week-grid-wrapper { height: 100%; overflow: hidden; }
+  .day-column { min-height: 0; height: 100%; }
+  .day-header { min-height: 54px; padding: 8px 7px; }
+  .day-name { font-size: 9px; letter-spacing: .05em; }
+  .day-number { font-size: 19px; }
+  .today-label { padding: 3px 4px; font-size: 7px; }
+  .day-body { min-height: 0; gap: 5px; overflow-y: auto; padding: 7px 5px; }
+  .empty-day { margin: 12px 1px; font-size: 9px; }
+  .empty-day span { margin-bottom: 4px; font-size: 15px; }
+  .task-item { gap: 5px; padding: 7px 5px; border-radius: 9px; }
+  .task-check { width: 16px; height: 16px; border-radius: 5px; }
+  .task-title { font-size: 10px; line-height: 1.22; }
+  .task-meta { gap: 3px; margin-top: 5px; font-size: 8px; }
+  .task-time { font-size: 8px; }
+  .assignee-chip { gap: 3px; padding: 2px 3px; font-size: 8px; }
+  .assignee-dot { width: 5px; height: 5px; }
+  .side-stack { flex-basis: 220px; height: 100%; gap: 10px; overflow: hidden; }
+  .list-card { padding: 13px 11px 10px; }
+  .list-card-heading { margin-bottom: 9px; }
+  .list-card-heading h2 { font-size: 17px; }
+  .list-card-heading .eyebrow { font-size: 8px; }
+  .count-pill { min-width: 22px; height: 22px; font-size: 9px; }
+  .quick-add { margin-bottom: 7px; padding: 4px 4px 4px 8px; }
+  .quick-add input { font-size: 10px; }
+  .add-list-button { width: 24px; height: 24px; font-size: 17px; }
+  .list-row { min-height: 29px; gap: 6px; }
+  .list-row-text { font-size: 10px; }
+  .list-check { width: 14px; height: 14px; }
+  .delete-row { font-size: 13px; }
+  .list-card-footer { min-height: 18px; margin-top: 2px; }
+  .subtle-button { padding: 4px 0; font-size: 9px; }
+  .save-status { font-size: 9px; }
 }

@@ -21,9 +21,8 @@
         </div>
 
         <div class="topbar-actions">
-          <button class="secondary-button install-button" id="installButton" type="button"><span aria-hidden="true">⌂</span> Add to Home Screen</button>
           <button class="icon-button" id="settingsButton" type="button" aria-label="Open settings" title="Settings">⚙</button>
-          <button class="primary-button" id="addTaskButton" type="button"><span aria-hidden="true">＋</span> Add task</button>
+          <button class="primary-button" id="addEventButton" type="button"><span aria-hidden="true">＋</span> Add event</button>
         </div>
       </header>
 
@@ -90,17 +89,17 @@
       </main>
     </div>
 
-    <dialog class="task-dialog" id="taskDialog" aria-labelledby="dialogTitle">
+    <dialog class="task-dialog" id="eventDialog" aria-labelledby="dialogTitle">
       <form method="dialog" id="taskForm" class="task-form">
         <div class="dialog-heading">
           <div>
             <p class="eyebrow">PLAN AHEAD</p>
-            <h2 id="dialogTitle">Add a task</h2>
+            <h2 id="dialogTitle">Add an event</h2>
           </div>
           <button class="close-button" id="closeDialogButton" type="button" aria-label="Close">×</button>
         </div>
 
-        <label class="field-label" for="taskTitle">What needs doing?</label>
+        <label class="field-label" for="taskTitle">What is happening?</label>
         <input class="large-input" id="taskTitle" name="title" type="text" placeholder="e.g. Put the garbage outside" required maxlength="120" autocomplete="off" />
 
         <div class="form-row">
@@ -109,8 +108,12 @@
             <input class="large-input" id="taskDate" name="date" type="date" required />
           </div>
           <div class="field-group">
-            <label class="field-label" for="taskTime">Time <span class="optional">optional</span></label>
-            <input class="large-input" id="taskTime" name="time" type="time" />
+            <label class="field-label" for="eventStart">Start time <span class="optional">optional</span></label>
+            <input class="large-input" id="eventStart" name="startTime" type="time" />
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="eventEnd">End time <span class="optional">optional</span></label>
+            <input class="large-input" id="eventEnd" name="endTime" type="time" />
           </div>
         </div>
 
@@ -126,7 +129,7 @@
           <div class="field-group">
             <label class="field-label" for="taskType">Type</label>
             <select class="large-input" id="taskType" name="kind">
-              <option value="task">Household task</option>
+              <option value="task">Event</option>
               <option value="expiry">Use-by reminder</option>
             </select>
           </div>
@@ -142,7 +145,7 @@
 
         <div class="dialog-actions">
           <button class="secondary-button" id="cancelDialogButton" type="button">Cancel</button>
-          <button class="primary-button" type="submit">Save task</button>
+          <button class="primary-button" type="submit">Save event</button>
         </div>
       </form>
     </dialog>
@@ -163,24 +166,6 @@
         </div>
         <div class="settings-note"><span aria-hidden="true">✦</span> Phone syncing can be added later without changing the planner layout.</div>
       </form>
-    </dialog>
-
-    <dialog class="install-dialog" id="installDialog" aria-labelledby="installTitle">
-      <div class="task-form">
-        <div class="dialog-heading">
-          <div>
-            <p class="eyebrow">ONE-TAP ACCESS</p>
-            <h2 id="installTitle">Add Homeboard</h2>
-          </div>
-          <button class="close-button" id="closeInstallButton" type="button" aria-label="Close">×</button>
-        </div>
-        <ol class="install-steps">
-          <li>Tap Safari’s <strong>Share</strong> button — the square with the arrow.</li>
-          <li>Scroll down and choose <strong>Add to Home Screen</strong>.</li>
-          <li>Tap <strong>Add</strong>. Homeboard will then appear as an icon.</li>
-        </ol>
-        <p class="install-note">If you do not see that option, this iPad may be too old for web-app installation. You can still keep Homeboard open in Safari.</p>
-      </div>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
