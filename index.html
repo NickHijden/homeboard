@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20260910-4" />
+    <link rel="stylesheet" href="styles.css?v=20260910-5" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -163,12 +163,33 @@
           </div>
           <button class="close-button" id="closeSettingsButton" type="button" aria-label="Close">×</button>
         </div>
-        <p class="settings-copy">This first version saves everything in this browser on this tablet. You can back it up or restore it whenever you like.</p>
+        <p class="settings-copy">Your planner is always saved on this device. Optional cloud sync lets your phone and tablet share the same planner.</p>
         <div class="settings-actions">
           <button class="secondary-button" id="exportButton" type="button">Download backup</button>
           <label class="secondary-button file-button" for="importInput">Restore backup<input id="importInput" type="file" accept="application/json" /></label>
         </div>
-        <div class="settings-note"><span aria-hidden="true">✦</span> Phone syncing can be added later without changing the planner layout.</div>
+        <div class="sync-section">
+          <p class="eyebrow">OPTIONAL CLOUD SYNC</p>
+          <p class="sync-copy">Use the same Homeboard login on both devices. Your laptop does not need to stay on.</p>
+          <label class="field-label" for="syncProjectUrl">Supabase project URL</label>
+          <input class="large-input" id="syncProjectUrl" type="url" placeholder="https://your-project.supabase.co" autocomplete="off" />
+          <label class="field-label" for="syncPublishableKey">Supabase publishable key</label>
+          <input class="large-input" id="syncPublishableKey" type="text" placeholder="sb_publishable_…" autocomplete="off" />
+          <button class="secondary-button sync-wide-button" id="saveSyncConfigButton" type="button">Save connection</button>
+          <div class="sync-divider"></div>
+          <label class="field-label" for="syncEmail">Homeboard email</label>
+          <input class="large-input" id="syncEmail" type="email" placeholder="you@example.com" autocomplete="username" />
+          <label class="field-label" for="syncPassword">Password</label>
+          <input class="large-input" id="syncPassword" type="password" placeholder="At least 8 characters" autocomplete="current-password" />
+          <div class="settings-actions">
+            <button class="primary-button" id="syncSignInButton" type="button">Sign in</button>
+            <button class="secondary-button" id="syncSignUpButton" type="button">Create account</button>
+            <button class="secondary-button" id="syncNowButton" type="button">Sync now</button>
+            <button class="subtle-button" id="syncSignOutButton" type="button">Sign out</button>
+          </div>
+          <p class="sync-status" id="syncStatus" aria-live="polite">Cloud sync is not connected.</p>
+        </div>
+        <div class="settings-note"><span aria-hidden="true">✦</span> Local saving stays active even when the internet is unavailable.</div>
       </form>
     </dialog>
 
@@ -177,6 +198,6 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260910-4" defer></script>
+    <script src="app.js?v=20260910-5" defer></script>
   </body>
 </html>

@@ -4,6 +4,9 @@ const STORAGE_KEY = 'homeboard-household-planner-v1';
 const BACKUP_STORAGE_KEY = 'homeboard-household-planner-last-known-good-v1';
 const IDB_NAME = 'homeboard-household-planner-storage';
 const IDB_STORE = 'planner-data';
+const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
+const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
+const SYNC_POLL_MS = 15000;
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -17,6 +20,15 @@ const state = {
   weekStart: startOfWeek(new Date()),
   lastUndo: null,
   toastTimer: null,
+};
+
+const syncState = {
+  config: loadSyncConfig(),
+  session: loadSyncSession(),
+  pollTimer: null,
+  queueTimer: null,
+  busy: false,
+  pending: false,
 };
 
 const els = {
@@ -57,6 +69,16 @@ const els = {
   settingsForm: document.querySelector('#settingsForm'),
   exportButton: document.querySelector('#exportButton'),
   importInput: document.querySelector('#importInput'),
+  syncProjectUrl: document.querySelector('#syncProjectUrl'),
+  syncPublishableKey: document.querySelector('#syncPublishableKey'),
+  syncEmail: document.querySelector('#syncEmail'),
+  syncPassword: document.querySelector('#syncPassword'),
+  saveSyncConfigButton: document.querySelector('#saveSyncConfigButton'),
+  syncSignInButton: document.querySelector('#syncSignInButton'),
+  syncSignUpButton: document.querySelector('#syncSignUpButton'),
+  syncNowButton: document.querySelector('#syncNowButton'),
+  syncSignOutButton: document.querySelector('#syncSignOutButton'),
+  syncStatus: document.querySelector('#syncStatus'),
 };
 
 const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -67,6 +89,7 @@ bindEvents();
 registerServiceWorker();
 if (loadedDataFromStorage) mirrorDataToIndexedDB(state.data);
 recoverFromIndexedDB();
+initializeSync();
 
 function bindEvents() {
   if (!els.addEventButton || !els.eventDialog || !els.taskForm) return;
@@ -87,7 +110,7 @@ function bindEvents() {
     event.preventDefault();
     const title = els.todoInput.value.trim();
     if (!title) return;
-    state.data.todos.unshift({ id: createId(), title, completed: false });
+    state.data.todos.unshift({ id: createId(), title, completed: false, updatedAt: nowIso() });
     els.todoInput.value = '';
     saveAndRender();
   });
@@ -95,7 +118,7 @@ function bindEvents() {
     event.preventDefault();
     const title = els.groceryInput.value.trim();
     if (!title) return;
-    state.data.groceries.unshift({ id: createId(), title, completed: false });
+    state.data.groceries.unshift({ id: createId(), title, completed: false, updatedAt: nowIso() });
     els.groceryInput.value = '';
     saveAndRender();
   });
@@ -112,6 +135,11 @@ function bindEvents() {
   els.settingsForm.addEventListener('submit', (event) => event.preventDefault());
   els.exportButton.addEventListener('click', exportBackup);
   els.importInput.addEventListener('change', importBackup);
+  if (els.saveSyncConfigButton) els.saveSyncConfigButton.addEventListener('click', saveSyncConfig);
+  if (els.syncSignInButton) els.syncSignInButton.addEventListener('click', () => signIn(false));
+  if (els.syncSignUpButton) els.syncSignUpButton.addEventListener('click', () => signIn(true));
+  if (els.syncNowButton) els.syncNowButton.addEventListener('click', () => syncNow(true));
+  if (els.syncSignOutButton) els.syncSignOutButton.addEventListener('click', signOut);
 }
 
 function render() {
@@ -383,6 +411,7 @@ function handleTaskSubmit(event) {
     assignee: String(els.taskAssignee.value || 'both'),
     kind: String(els.taskType.value || 'task'),
     recurrence: String(els.taskRepeat.value || 'none'),
+    updatedAt: nowIso(),
   });
   persist();
   closeDialog(els.eventDialog);
@@ -405,8 +434,14 @@ function handleListClick(event) {
   const itemId = target.dataset.itemId;
   const item = state.data[listName].find((entry) => entry.id === itemId);
   if (!item) return;
-  if (target.dataset.listAction === 'toggle') item.completed = !item.completed;
-  if (target.dataset.listAction === 'delete') state.data[listName] = state.data[listName].filter((entry) => entry.id !== itemId);
+  if (target.dataset.listAction === 'toggle') {
+    item.completed = !item.completed;
+    item.updatedAt = nowIso();
+  }
+  if (target.dataset.listAction === 'delete') {
+    markDeleted(listName, itemId);
+    state.data[listName] = state.data[listName].filter((entry) => entry.id !== itemId);
+  }
   persist();
   render();
 }
@@ -434,6 +469,7 @@ function renderList(listName, container, countElement, emptyMessage) {
 
 function clearCompleted(listName) {
   const before = state.data[listName].length;
+  state.data[listName].filter((item) => item.completed).forEach((item) => markDeleted(listName, item.id));
   state.data[listName] = state.data[listName].filter((item) => !item.completed);
   if (state.data[listName].length !== before) {
     persist();
@@ -500,6 +536,257 @@ function importBackup(event) {
   reader.readAsText(file);
 }
 
+function loadSyncConfig() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SYNC_CONFIG_KEY));
+    if (stored && stored.url && stored.key) return { url: String(stored.url), key: String(stored.key) };
+  } catch (error) {
+    // Fall back to local-only mode.
+  }
+  return { url: '', key: '' };
+}
+
+function loadSyncSession() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SYNC_SESSION_KEY));
+    if (stored && stored.access_token && stored.refresh_token && stored.user && stored.user.id) return stored;
+  } catch (error) {
+    // A broken session should never prevent the local planner from opening.
+  }
+  return null;
+}
+
+function initializeSync() {
+  if (els.syncProjectUrl) els.syncProjectUrl.value = syncState.config.url;
+  if (els.syncPublishableKey) els.syncPublishableKey.value = syncState.config.key;
+  renderSyncStatus();
+  if (syncState.session && syncState.config.url && syncState.config.key) {
+    startSyncPolling();
+    syncNow(false);
+  }
+}
+
+function saveSyncConfig() {
+  const url = String(els.syncProjectUrl.value || '').trim().replace(/\/$/, '');
+  const key = String(els.syncPublishableKey.value || '').trim();
+  if (!/^https:\/\//i.test(url) || !key) {
+    setSyncStatus('Enter the HTTPS project URL and publishable key.', 'error');
+    return;
+  }
+  syncState.config = { url, key };
+  syncState.session = null;
+  stopSyncPolling();
+  localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(syncState.config));
+  localStorage.removeItem(SYNC_SESSION_KEY);
+  renderSyncStatus('Connection saved. Sign in below.');
+  showToast('Cloud connection saved');
+}
+
+async function signIn(createAccount) {
+  if (!syncState.config.url || !syncState.config.key) {
+    setSyncStatus('Save the Supabase connection first.', 'error');
+    return;
+  }
+  const email = String(els.syncEmail.value || '').trim();
+  const password = String(els.syncPassword.value || '');
+  if (!email || password.length < 8) {
+    setSyncStatus('Enter an email and a password of at least 8 characters.', 'error');
+    return;
+  }
+  setSyncStatus(createAccount ? 'Creating account…' : 'Signing in…');
+  try {
+    const path = createAccount ? '/auth/v1/signup' : '/auth/v1/token?grant_type=password';
+    const response = await syncRequest(path, { method: 'POST', body: { email, password } });
+    if (!response.access_token) {
+      setSyncStatus('Account created. Check the confirmation email, then sign in.', 'connected');
+      return;
+    }
+    setSyncSession(response);
+    startSyncPolling();
+    await syncNow(true);
+    els.syncPassword.value = '';
+  } catch (error) {
+    setSyncStatus(error.message || 'Cloud sign-in failed.', 'error');
+  }
+}
+
+function signOut() {
+  stopSyncPolling();
+  syncState.session = null;
+  localStorage.removeItem(SYNC_SESSION_KEY);
+  renderSyncStatus('Signed out. Local planner data is still available.');
+}
+
+function setSyncSession(response) {
+  syncState.session = {
+    access_token: response.access_token,
+    refresh_token: response.refresh_token,
+    expires_in: response.expires_in,
+    expires_at: Math.floor(Date.now() / 1000) + Number(response.expires_in || 3600),
+    user: response.user,
+  };
+  localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify(syncState.session));
+}
+
+function startSyncPolling() {
+  stopSyncPolling();
+  syncState.pollTimer = window.setInterval(() => syncNow(false), SYNC_POLL_MS);
+}
+
+function stopSyncPolling() {
+  if (syncState.pollTimer) window.clearInterval(syncState.pollTimer);
+  syncState.pollTimer = null;
+}
+
+function renderSyncStatus(message, type) {
+  if (!els.syncStatus) return;
+  if (message) els.syncStatus.textContent = message;
+  else if (!syncState.config.url || !syncState.config.key) els.syncStatus.textContent = 'Cloud sync is not connected.';
+  else if (syncState.session) els.syncStatus.textContent = 'Connected. Syncing automatically.';
+  else els.syncStatus.textContent = 'Connection saved. Sign in below.';
+  els.syncStatus.className = `sync-status${type ? ` ${type}` : syncState.session ? ' connected' : ''}`;
+}
+
+function setSyncStatus(message, type) {
+  renderSyncStatus(message, type);
+}
+
+async function syncNow(manual) {
+  if (!syncState.config.url || !syncState.config.key) {
+    if (manual) setSyncStatus('Save the Supabase connection first.', 'error');
+    return;
+  }
+  if (!syncState.session) {
+    if (manual) setSyncStatus('Sign in to start cloud sync.', 'error');
+    return;
+  }
+  if (syncState.busy) {
+    syncState.pending = true;
+    return;
+  }
+  syncState.busy = true;
+  if (manual) setSyncStatus('Syncing…');
+  try {
+    const session = await ensureSyncSession();
+    if (!session) throw new Error('Your session expired. Please sign in again.');
+    const remote = await fetchRemoteData(session);
+    const localBefore = JSON.stringify(state.data);
+    const merged = remote ? mergePlannerData(state.data, remote) : state.data;
+    const mergedSignature = JSON.stringify(merged);
+    if (mergedSignature !== localBefore) {
+      state.data = merged;
+      persist({ sync: false });
+      render();
+    }
+    if (!remote || JSON.stringify(remote) !== mergedSignature) await pushRemoteData(session, merged);
+    renderSyncStatus('Connected. Synced just now.', 'connected');
+  } catch (error) {
+    if (/401|403|expired|invalid/i.test(error.message || '')) {
+      syncState.session = null;
+      localStorage.removeItem(SYNC_SESSION_KEY);
+      stopSyncPolling();
+    }
+    setSyncStatus(error.message || 'Sync failed; local saving is still active.', 'error');
+  } finally {
+    syncState.busy = false;
+    if (syncState.pending) {
+      syncState.pending = false;
+      window.setTimeout(() => syncNow(false), 250);
+    }
+  }
+}
+
+async function ensureSyncSession() {
+  const session = syncState.session;
+  if (!session) return null;
+  if (!session.expires_at || Date.now() < (Number(session.expires_at) * 1000) - 60000) return session;
+  if (!session.refresh_token) return null;
+  const response = await syncRequest('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token } });
+  setSyncSession(response);
+  return syncState.session;
+}
+
+async function fetchRemoteData(session) {
+  const userId = encodeURIComponent(session.user.id);
+  const rows = await syncRequest(`/rest/v1/planner_documents?id=eq.${userId}&select=id,data,updated_at`, { method: 'GET' }, session.access_token);
+  if (!Array.isArray(rows) || !rows.length) return null;
+  return normalizePlannerData(rows[0].data);
+}
+
+async function pushRemoteData(session, data) {
+  await syncRequest('/rest/v1/planner_documents', {
+    method: 'POST',
+    body: [{ id: session.user.id, data, updated_at: new Date().toISOString() }],
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+  }, session.access_token);
+}
+
+async function syncRequest(path, options, accessToken) {
+  const headers = {
+    apikey: syncState.config.key,
+    'Content-Type': 'application/json',
+  };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  Object.keys((options && options.headers) || {}).forEach((key) => { headers[key] = options.headers[key]; });
+  const request = { method: (options && options.method) || 'GET', headers };
+  if (options && options.body !== undefined) request.body = JSON.stringify(options.body);
+  const response = await fetch(syncState.config.url + path, request);
+  const text = await response.text();
+  let result = null;
+  try { result = text ? JSON.parse(text) : null; } catch (error) { result = null; }
+  if (!response.ok) {
+    const message = result && (result.msg || result.message || result.error_description || result.error) || `Cloud request failed (${response.status})`;
+    throw new Error(message);
+  }
+  return result;
+}
+
+function mergePlannerData(local, remote) {
+  const localIsDemo = Boolean(local.meta && local.meta.demo);
+  const remoteIsDemo = Boolean(remote.meta && remote.meta.demo);
+  if (localIsDemo && remoteIsDemo) return remote;
+  if (localIsDemo && !remoteIsDemo) return remote;
+  if (remoteIsDemo && !localIsDemo) return local;
+  const deleted = mergeDeletedMaps(local.meta && local.meta.deleted, remote.meta && remote.meta.deleted);
+  return {
+    tasks: mergeItems(local.tasks, remote.tasks, deleted.tasks),
+    todos: mergeItems(local.todos, remote.todos, deleted.todos),
+    groceries: mergeItems(local.groceries, remote.groceries, deleted.groceries),
+    completions: Object.assign({}, remote.completions || {}, local.completions || {}),
+    meta: { demo: false, deleted },
+  };
+}
+
+function mergeDeletedMaps(localDeleted, remoteDeleted) {
+  const result = { tasks: {}, todos: {}, groceries: {} };
+  ['tasks', 'todos', 'groceries'].forEach((listName) => {
+    Object.assign(result[listName], (remoteDeleted && remoteDeleted[listName]) || {}, (localDeleted && localDeleted[listName]) || {});
+    Object.keys((remoteDeleted && remoteDeleted[listName]) || {}).forEach((id) => {
+      result[listName][id] = Math.max(Number((remoteDeleted[listName] || {})[id]) || 0, Number((localDeleted && localDeleted[listName] || {})[id]) || 0);
+    });
+  });
+  return result;
+}
+
+function mergeItems(localItems, remoteItems, deleted) {
+  const merged = [];
+  const byId = {};
+  (localItems || []).concat(remoteItems || []).forEach((item) => {
+    if (!item || !item.id) return;
+    const deletedAt = Number((deleted && deleted[item.id]) || 0);
+    const updatedAt = Date.parse(item.updatedAt || '') || 0;
+    if (deletedAt && updatedAt <= deletedAt) return;
+    if (!byId[item.id]) {
+      byId[item.id] = item;
+      merged.push(item);
+      return;
+    }
+    const previousUpdatedAt = Date.parse(byId[item.id].updatedAt || '') || 0;
+    if (updatedAt > previousUpdatedAt) byId[item.id] = item;
+  });
+  return merged.map((item) => byId[item.id]);
+}
+
 function loadData() {
   try {
     const keysToTry = [STORAGE_KEY, BACKUP_STORAGE_KEY].concat(LEGACY_STORAGE_KEYS);
@@ -554,6 +841,7 @@ function normalizePlannerData(stored) {
     todos: stored.todos.map(normalizeListItem),
     groceries: stored.groceries.map(normalizeListItem),
     completions: stored.completions && typeof stored.completions === 'object' ? stored.completions : {},
+    meta: stored.meta && typeof stored.meta === 'object' ? stored.meta : {},
   };
 }
 
@@ -576,11 +864,13 @@ function createStarterData() {
       { id: createId(), title: 'Dishwasher tablets', completed: false },
     ],
     completions: {},
+    meta: { demo: true },
   };
 }
 
-function persist() {
+function persist(options) {
   try {
+    state.data.meta = Object.assign({}, state.data.meta || {}, { demo: false });
     const serialized = JSON.stringify(state.data);
     // The stable primary key preserves the data across app versions. The
     // second copy gives us a recovery path if iOS returns an incomplete store
@@ -588,11 +878,28 @@ function persist() {
     localStorage.setItem(STORAGE_KEY, serialized);
     localStorage.setItem(BACKUP_STORAGE_KEY, serialized);
     mirrorDataToIndexedDB(state.data);
+    if (!options || options.sync !== false) queueCloudSync();
     els.saveStatus.innerHTML = '<span class="status-dot"></span> Saved on this tablet';
   } catch (error) {
     els.saveStatus.innerHTML = '<span class="status-dot" style="background:#e5a34b"></span> Storage is unavailable';
     console.warn('Homeboard data could not be saved', error);
   }
+}
+
+function markDeleted(listName, itemId) {
+  state.data.meta = state.data.meta || {};
+  state.data.meta.deleted = state.data.meta.deleted || { tasks: {}, todos: {}, groceries: {} };
+  state.data.meta.deleted[listName] = state.data.meta.deleted[listName] || {};
+  state.data.meta.deleted[listName][itemId] = Date.now();
+}
+
+function queueCloudSync() {
+  if (!syncState || !syncState.session || !syncState.config.url || !syncState.config.key) return;
+  if (syncState.queueTimer) return;
+  syncState.queueTimer = window.setTimeout(() => {
+    syncState.queueTimer = null;
+    syncNow(false);
+  }, 800);
 }
 
 function openPlannerDatabase(callback) {
@@ -656,7 +963,7 @@ function registerServiceWorker() {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (hadController) window.location.reload();
     });
-    navigator.serviceWorker.register('./sw.js?v=20260910-4').then((registration) => {
+    navigator.serviceWorker.register('./sw.js?v=20260910-5').then((registration) => {
       if (registration && typeof registration.update === 'function') registration.update();
     }).catch(() => {});
   }
@@ -694,6 +1001,7 @@ function closeDialog(dialog) {
   document.body.classList.remove('modal-open');
 }
 
+function nowIso() { return new Date().toISOString(); }
 function completionKey(taskId, occurrenceDate) { return `${taskId}::${occurrenceDate}`; }
 function isCompleted(taskId, occurrenceDate) { return Boolean(state.data.completions[completionKey(taskId, occurrenceDate)]); }
 function createId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }

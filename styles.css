@@ -171,7 +171,7 @@ dialog[open] { display: block; }
 dialog::backdrop { background: rgba(38, 42, 64, .35); backdrop-filter: blur(3px); }
 body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 900; background: rgba(38, 42, 64, .35); }
 .task-dialog { width: 490px; }
-.settings-dialog { width: 430px; }
+.settings-dialog { width: 430px; max-height: calc(100vh - 28px); overflow-y: auto; }
 .task-form { padding: 28px; }
 .dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 25px; }
 .dialog-heading h2 { font-size: 24px; }
@@ -187,6 +187,13 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .settings-actions { display: flex; flex-wrap: wrap; gap: 9px; }
 .file-button { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .file-button input { display: none; }
+.sync-section { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line); }
+.sync-copy { margin: -1px 0 16px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.sync-wide-button { width: 100%; }
+.sync-divider { height: 1px; margin: 20px 0; background: var(--line); }
+.sync-status { min-height: 18px; margin: 14px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.sync-status.connected { color: #278b6e; }
+.sync-status.error { color: #c75c63; }
 .settings-note { display: flex; gap: 8px; margin-top: 22px; padding: 12px; border-radius: 11px; background: var(--mint-soft); color: #318e73; font-size: 11px; line-height: 1.45; }
 .settings-note span { color: var(--mint); }
 
