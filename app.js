@@ -1,4 +1,12 @@
+// Keep this key stable: changing it would make a Home Screen installation
+// look empty even though the old events still exist in Safari's storage.
 const STORAGE_KEY = 'homeboard-household-planner-v1';
+const BACKUP_STORAGE_KEY = 'homeboard-household-planner-last-known-good-v1';
+const LEGACY_STORAGE_KEYS = [
+  'homeboard-household-planner-v2',
+  'homeboard-planner-data',
+  'homeboard-data',
+];
 
 const state = {
   data: loadData(),
@@ -12,17 +20,17 @@ const els = {
   weekRange: document.querySelector('#weekRange'),
   weekSummary: document.querySelector('#weekSummary'),
   weekGrid: document.querySelector('#weekGrid'),
-  addEventButton: document.querySelector('#addEventButton'),
+  addEventButton: document.querySelector('#addEventButton') || document.querySelector('#addTaskButton'),
   previousWeekButton: document.querySelector('#previousWeekButton'),
   nextWeekButton: document.querySelector('#nextWeekButton'),
   todayButton: document.querySelector('#todayButton'),
-  eventDialog: document.querySelector('#eventDialog'),
+  eventDialog: document.querySelector('#eventDialog') || document.querySelector('#taskDialog'),
   taskForm: document.querySelector('#taskForm'),
   closeDialogButton: document.querySelector('#closeDialogButton'),
   cancelDialogButton: document.querySelector('#cancelDialogButton'),
   taskTitle: document.querySelector('#taskTitle'),
   taskDate: document.querySelector('#taskDate'),
-  eventStart: document.querySelector('#eventStart'),
+  eventStart: document.querySelector('#eventStart') || document.querySelector('#taskTime'),
   eventEnd: document.querySelector('#eventEnd'),
   taskAssignee: document.querySelector('#taskAssignee'),
   taskType: document.querySelector('#taskType'),
@@ -52,9 +60,11 @@ const shortWeekdayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
 render();
 bindEvents();
+persist();
 registerServiceWorker();
 
 function bindEvents() {
+  if (!els.addEventButton || !els.eventDialog || !els.taskForm) return;
   els.addEventButton.addEventListener('click', () => openEventDialog());
   els.previousWeekButton.addEventListener('click', () => moveWeek(-1));
   els.nextWeekButton.addEventListener('click', () => moveWeek(1));
@@ -230,11 +240,12 @@ function completeTask(taskId, occurrenceDate, title) {
 
 function handleTaskSubmit(event) {
   event.preventDefault();
-  const formData = new FormData(els.taskForm);
-  const title = String(formData.get('title') || '').trim();
-  const date = String(formData.get('date') || '');
-  const startTime = String(formData.get('startTime') || '');
-  const endTime = String(formData.get('endTime') || '');
+  // Read the controls directly instead of using FormData. This is more
+  // reliable on the older Safari shipped with iPad mini 2.
+  const title = String(els.taskTitle.value || '').trim();
+  const date = String(els.taskDate.value || '');
+  const startTime = String(els.eventStart && els.eventStart.value || '');
+  const endTime = String(els.eventEnd && els.eventEnd.value || '');
   if (!title || !date) return;
   if (startTime && endTime && endTime < startTime) {
     showToast('End time must be after start time');
@@ -246,9 +257,9 @@ function handleTaskSubmit(event) {
     date,
     startTime,
     endTime,
-    assignee: String(formData.get('assignee') || 'both'),
-    kind: String(formData.get('kind') || 'task'),
-    recurrence: String(formData.get('recurrence') || 'none'),
+    assignee: String(els.taskAssignee.value || 'both'),
+    kind: String(els.taskType.value || 'task'),
+    recurrence: String(els.taskRepeat.value || 'none'),
   });
   persist();
   closeDialog(els.eventDialog);
@@ -349,16 +360,16 @@ function importBackup(event) {
       const imported = JSON.parse(reader.result);
       if (!Array.isArray(imported.tasks) || !Array.isArray(imported.todos) || !Array.isArray(imported.groceries)) throw new Error('Invalid backup');
       state.data = {
-        tasks: imported.tasks,
-        todos: imported.todos,
-        groceries: imported.groceries,
+        tasks: imported.tasks.map(normalizeTask),
+        todos: imported.todos.map(normalizeListItem),
+        groceries: imported.groceries.map(normalizeListItem),
         completions: imported.completions || {},
       };
       persist();
       render();
       closeDialog(els.settingsDialog);
       showToast('Backup restored');
-    } catch {
+    } catch (error) {
       showToast('That backup file could not be restored');
     }
     event.target.value = '';
@@ -368,19 +379,33 @@ function importBackup(event) {
 
 function loadData() {
   try {
-    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (stored && Array.isArray(stored.tasks) && Array.isArray(stored.todos) && Array.isArray(stored.groceries)) {
-      return {
-        tasks: stored.tasks.map(normalizeTask),
-        todos: stored.todos,
-        groceries: stored.groceries,
-        completions: stored.completions || {},
-      };
+    const keysToTry = [STORAGE_KEY, BACKUP_STORAGE_KEY].concat(LEGACY_STORAGE_KEYS);
+    for (let index = 0; index < keysToTry.length; index += 1) {
+      const recovered = readStoredData(keysToTry[index]);
+      if (recovered) return recovered;
     }
   } catch (error) {
     console.warn('Homeboard data could not be loaded', error);
   }
   return createStarterData();
+}
+
+function readStoredData(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const stored = parsed && parsed.data && !Array.isArray(parsed.data) ? parsed.data : parsed;
+    if (!stored || !Array.isArray(stored.tasks) || !Array.isArray(stored.todos) || !Array.isArray(stored.groceries)) return null;
+    return {
+      tasks: stored.tasks.map(normalizeTask),
+      todos: stored.todos.map(normalizeListItem),
+      groceries: stored.groceries.map(normalizeListItem),
+      completions: stored.completions && typeof stored.completions === 'object' ? stored.completions : {},
+    };
+  } catch (error) {
+    return null;
+  }
 }
 
 function normalizeTask(task) {
@@ -390,6 +415,15 @@ function normalizeTask(task) {
   normalized.startTime = normalized.startTime || normalized.time || '';
   normalized.endTime = normalized.endTime || '';
   delete normalized.time;
+  return normalized;
+}
+
+function normalizeListItem(item) {
+  const normalized = {};
+  Object.keys(item || {}).forEach((key) => { normalized[key] = item[key]; });
+  normalized.id = normalized.id || createId();
+  normalized.title = String(normalized.title || '').trim();
+  normalized.completed = Boolean(normalized.completed);
   return normalized;
 }
 
@@ -417,7 +451,12 @@ function createStarterData() {
 
 function persist() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+    const serialized = JSON.stringify(state.data);
+    // The stable primary key preserves the data across app versions. The
+    // second copy gives us a recovery path if iOS returns an incomplete store
+    // after updating or reinstalling a Home Screen shortcut.
+    localStorage.setItem(STORAGE_KEY, serialized);
+    localStorage.setItem(BACKUP_STORAGE_KEY, serialized);
     els.saveStatus.innerHTML = '<span class="status-dot"></span> Saved on this tablet';
   } catch (error) {
     els.saveStatus.innerHTML = '<span class="status-dot" style="background:#e5a34b"></span> Storage is unavailable';
@@ -432,7 +471,13 @@ function saveAndRender() {
 
 function registerServiceWorker() {
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController) window.location.reload();
+    });
+    navigator.serviceWorker.register('./sw.js?v=20260910-2').then((registration) => {
+      if (registration && typeof registration.update === 'function') registration.update();
+    }).catch(() => {});
   }
 }
 
@@ -441,17 +486,27 @@ function closeDialogOnBackdrop(event) {
 }
 
 function openDialog(dialog) {
+  if (!dialog) return;
   if (typeof dialog.showModal === 'function') {
-    dialog.showModal();
-    return;
+    try {
+      if (!dialog.open) dialog.showModal();
+      return;
+    } catch (error) {
+      // Fall through to the attribute-based modal used by older Safari.
+    }
   }
   dialog.setAttribute('open', 'open');
   document.body.classList.add('modal-open');
 }
 
 function closeDialog(dialog) {
+  if (!dialog) return;
   if (typeof dialog.close === 'function') {
-    dialog.close();
+    try {
+      if (dialog.open) dialog.close();
+    } catch (error) {
+      dialog.removeAttribute('open');
+    }
   } else {
     dialog.removeAttribute('open');
   }
