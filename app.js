@@ -7,6 +7,7 @@ const IDB_STORE = 'planner-data';
 const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_POLL_MS = 15000;
+const APP_VERSION = '20260918-1';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -140,6 +141,19 @@ function bindEvents() {
   if (els.syncSignUpButton) els.syncSignUpButton.addEventListener('click', () => signIn(true));
   if (els.syncNowButton) els.syncNowButton.addEventListener('click', () => syncNow(true));
   if (els.syncSignOutButton) els.syncSignOutButton.addEventListener('click', signOut);
+
+  // iPad pauses timers while the Home Screen app is in the background. When
+  // it becomes visible again, immediately refresh both the app shell and the
+  // shared planner instead of waiting for the polling timer.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then((registration) => {
+        if (registration && typeof registration.update === 'function') registration.update();
+      }).catch(() => {});
+    }
+    if (syncState.session) syncNow(false);
+  });
 }
 
 function render() {
@@ -963,7 +977,7 @@ function registerServiceWorker() {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (hadController) window.location.reload();
     });
-    navigator.serviceWorker.register('./sw.js?v=20260910-5').then((registration) => {
+    navigator.serviceWorker.register(`./sw.js?v=${APP_VERSION}`).then((registration) => {
       if (registration && typeof registration.update === 'function') registration.update();
     }).catch(() => {});
   }

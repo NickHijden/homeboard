@@ -1,5 +1,12 @@
-const CACHE_NAME = 'homeboard-shell-v7';
-const SHELL = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest'];
+const APP_VERSION = '20260918-1';
+const CACHE_NAME = `homeboard-shell-${APP_VERSION}`;
+const SHELL = [
+  './',
+  './index.html',
+  `./styles.css?v=${APP_VERSION}`,
+  `./app.js?v=${APP_VERSION}`,
+  './manifest.webmanifest',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)));
