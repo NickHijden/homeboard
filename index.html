@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20260918-4" />
+    <link rel="stylesheet" href="styles.css?v=20260918-5" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -110,11 +110,17 @@
           </div>
           <div class="field-group">
             <label class="field-label" for="eventStart">Start time <span class="optional">optional</span></label>
-            <input class="large-input" id="eventStart" name="startTime" type="time" />
+            <div class="time-input-wrap">
+              <input class="large-input" id="eventStart" name="startTime" type="time" />
+              <button class="time-clear" id="clearEventStartButton" type="button" aria-label="Clear start time" title="Clear start time" hidden>×</button>
+            </div>
           </div>
           <div class="field-group">
             <label class="field-label" for="eventEnd">End time <span class="optional">optional</span></label>
-            <input class="large-input" id="eventEnd" name="endTime" type="time" />
+            <div class="time-input-wrap">
+              <input class="large-input" id="eventEnd" name="endTime" type="time" />
+              <button class="time-clear" id="clearEventEndButton" type="button" aria-label="Clear end time" title="Clear end time" hidden>×</button>
+            </div>
           </div>
           <!-- Hidden compatibility field for a previously cached app version. -->
           <input id="taskTime" name="time" type="hidden" value="" />
@@ -199,6 +205,6 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260918-4" defer></script>
+    <script src="app.js?v=20260918-5" defer></script>
   </body>
 </html>

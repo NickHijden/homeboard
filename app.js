@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260918-4';
+const APP_VERSION = '20260918-5';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -54,6 +54,8 @@ const els = {
   taskDate: document.querySelector('#taskDate'),
   eventStart: document.querySelector('#eventStart') || document.querySelector('#taskTime'),
   eventEnd: document.querySelector('#eventEnd'),
+  clearEventStartButton: document.querySelector('#clearEventStartButton'),
+  clearEventEndButton: document.querySelector('#clearEventEndButton'),
   taskAssignee: document.querySelector('#taskAssignee'),
   taskType: document.querySelector('#taskType'),
   taskRepeat: document.querySelector('#taskRepeat'),
@@ -111,6 +113,16 @@ function bindEvents() {
   els.closeDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
   els.cancelDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
   if (els.deleteEventButton) els.deleteEventButton.addEventListener('click', deleteEditingEvent);
+  if (els.clearEventStartButton) els.clearEventStartButton.addEventListener('click', () => clearTimeInput(els.eventStart));
+  if (els.clearEventEndButton) els.clearEventEndButton.addEventListener('click', () => clearTimeInput(els.eventEnd));
+  if (els.eventStart) {
+    els.eventStart.addEventListener('input', updateTimeClearButtons);
+    els.eventStart.addEventListener('change', updateTimeClearButtons);
+  }
+  if (els.eventEnd) {
+    els.eventEnd.addEventListener('input', updateTimeClearButtons);
+    els.eventEnd.addEventListener('change', updateTimeClearButtons);
+  }
   els.eventDialog.addEventListener('click', closeDialogOnBackdrop);
 
   els.todoForm.addEventListener('submit', (event) => {
@@ -262,12 +274,14 @@ function renderWeek() {
       openEventDialog({ date: key, startTime });
     });
 
-    const workingHoursBand = document.createElement('div');
-    workingHoursBand.className = 'working-hours-band';
-    workingHoursBand.setAttribute('aria-hidden', 'true');
-    workingHoursBand.style.top = `${untimedHeight + ((9 * 60 - range.startMinutes) / 60) * hourHeight}px`;
-    workingHoursBand.style.height = `${8 * hourHeight}px`;
-    timeline.appendChild(workingHoursBand);
+    if (index < 5) {
+      const workingHoursBand = document.createElement('div');
+      workingHoursBand.className = 'working-hours-band';
+      workingHoursBand.setAttribute('aria-hidden', 'true');
+      workingHoursBand.style.top = `${untimedHeight + ((9 * 60 - range.startMinutes) / 60) * hourHeight}px`;
+      workingHoursBand.style.height = `${8 * hourHeight}px`;
+      timeline.appendChild(workingHoursBand);
+    }
 
     const lines = document.createElement('div');
     lines.className = 'timeline-lines';
@@ -489,8 +503,21 @@ function openEventDialog(options = {}) {
   els.taskAssignee.value = task && task.assignee || 'both';
   els.taskType.value = task && task.kind || 'event';
   els.taskRepeat.value = task && task.recurrence || 'none';
+  updateTimeClearButtons();
   openDialog(els.eventDialog);
   window.setTimeout(() => els.taskTitle.focus(), 30);
+}
+
+function clearTimeInput(input) {
+  if (!input) return;
+  input.value = '';
+  updateTimeClearButtons();
+  input.focus();
+}
+
+function updateTimeClearButtons() {
+  if (els.clearEventStartButton) els.clearEventStartButton.hidden = !els.eventStart || !els.eventStart.value;
+  if (els.clearEventEndButton) els.clearEventEndButton.hidden = !els.eventEnd || !els.eventEnd.value;
 }
 
 function deleteEditingEvent() {

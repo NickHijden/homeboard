@@ -184,6 +184,10 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .field-label { display: block; margin: 0 0 7px; color: #6e7380; font-size: 11px; font-weight: 700; }
 .optional { color: #b0b3bd; font-weight: 500; }
 .large-input { width: 100%; height: 43px; margin-bottom: 17px; padding: 0 12px; border: 1px solid var(--line); border-radius: 11px; outline: none; background: #fcfcfe; color: var(--ink); font-size: 13px; }
+.time-input-wrap { position: relative; margin-bottom: 17px; }
+.time-input-wrap .large-input { margin-bottom: 0; padding-right: 36px; }
+.time-clear { position: absolute; top: 50%; right: 7px; display: grid; place-items: center; width: 27px; height: 27px; border: 0; border-radius: 50%; background: #eeedff; color: var(--violet); font-size: 19px; line-height: 1; transform: translateY(-50%); }
+.time-clear:hover { background: #e1dfff; }
 .large-input:focus { border-color: #b8b7f7; box-shadow: 0 0 0 3px rgba(105,103,232,.1); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 6px; }
