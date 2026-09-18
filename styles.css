@@ -98,10 +98,11 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .any-time-label { color: #b0b3bd; font-size: 9px; font-weight: 500; }
 .day-timeline { position: relative; min-height: var(--timeline-height); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); background: #fcfcfe; overflow: hidden; }
 .day-timeline.today { border-color: #cbcaff; box-shadow: inset 3px 0 0 var(--violet); }
-.timeline-lines { position: absolute; top: var(--untimed-height); right: 0; bottom: 0; left: 0; background-image: linear-gradient(to bottom, rgba(216, 218, 229, .78) 1px, transparent 1px); background-size: 100% var(--hour-height); pointer-events: none; }
+.working-hours-band { position: absolute; right: 0; left: 0; z-index: 0; border-top: 1px solid rgba(105, 103, 232, .055); border-bottom: 1px solid rgba(105, 103, 232, .055); background: rgba(105, 103, 232, .045); pointer-events: none; }
+.timeline-lines { position: absolute; top: var(--untimed-height); right: 0; bottom: 0; left: 0; z-index: 1; background-image: linear-gradient(to bottom, rgba(216, 218, 229, .78) 1px, transparent 1px); background-size: 100% var(--hour-height); pointer-events: none; }
 .untimed-lane { position: absolute; top: 0; right: 0; left: 0; z-index: 4; height: var(--untimed-height); padding: 5px; border-bottom: 1px dashed #e4e5ec; background: rgba(255, 255, 255, .7); overflow: hidden; }
-.untimed-event { position: relative; display: flex; min-height: 27px; margin: 0 0 4px; padding: 5px 6px; }
-.timed-event { position: absolute; z-index: 3; display: flex; margin: 0; padding: 7px 6px; overflow: hidden; }
+.untimed-event { position: relative; display: flex; min-height: 60px; margin: 0 0 4px; padding: 5px 6px; }
+.timed-event { position: absolute; z-index: 3; display: flex; min-height: 60px; margin: 0; padding: 7px 6px; overflow: hidden; }
 .day-name { margin: 0 0 3px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .day-number { margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 23px; font-weight: 600; letter-spacing: -.06em; }
 .today-label { padding: 4px 6px; border-radius: 6px; background: var(--violet-soft); color: var(--violet); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
@@ -272,7 +273,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .today-label { padding: 3px 4px; font-size: 7px; }
   .timeline-lines { background-size: 100% var(--hour-height); }
   .untimed-lane { padding: 4px; }
-  .untimed-event { min-height: 24px; margin-bottom: 3px; padding: 4px; }
+  .untimed-event { min-height: 60px; margin-bottom: 3px; padding: 4px; }
   .empty-day { top: calc(var(--untimed-height) + 18px); margin: 12px 1px; font-size: 9px; }
   .empty-day span { margin-bottom: 4px; font-size: 15px; }
   .task-item { gap: 5px; padding: 7px 5px; border-radius: 9px; }

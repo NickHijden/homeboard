@@ -203,7 +203,7 @@ function renderWeek() {
   const hourHeight = isLandscapeTablet() ? 30 : 46;
   const untimedByDay = days.map((day) => openOccurrences.filter((item) => item.dateKey === dateKey(day) && !getTaskTimeBounds(item.task)));
   const maxUntimedCount = Math.max.apply(null, untimedByDay.map((items) => items.length).concat([0]));
-  const untimedHeight = maxUntimedCount ? Math.max(38, Math.min(96, maxUntimedCount * 31 + 7)) : 0;
+  const untimedHeight = maxUntimedCount ? Math.max(68, maxUntimedCount * 68 + 7) : 0;
   const timelineHeight = Math.max(1, ((range.endMinutes - range.startMinutes) / 60) * hourHeight + untimedHeight);
   grid.style.setProperty('--timeline-height', `${timelineHeight}px`);
   grid.style.setProperty('--hour-height', `${hourHeight}px`);
@@ -262,6 +262,13 @@ function renderWeek() {
       openEventDialog({ date: key, startTime });
     });
 
+    const workingHoursBand = document.createElement('div');
+    workingHoursBand.className = 'working-hours-band';
+    workingHoursBand.setAttribute('aria-hidden', 'true');
+    workingHoursBand.style.top = `${untimedHeight + ((9 * 60 - range.startMinutes) / 60) * hourHeight}px`;
+    workingHoursBand.style.height = `${8 * hourHeight}px`;
+    timeline.appendChild(workingHoursBand);
+
     const lines = document.createElement('div');
     lines.className = 'timeline-lines';
     timeline.appendChild(lines);
@@ -288,18 +295,12 @@ function renderWeek() {
       const laneWidth = 100 / placement.laneCount;
       element.classList.add('timed-event');
       element.style.top = `${top}px`;
-      element.style.height = `${height}px`;
+      element.style.height = 'auto';
       element.style.left = `calc(${placement.lane * laneWidth}% + 3px)`;
       element.style.width = `calc(${laneWidth}% - 6px)`;
       timeline.appendChild(element);
+      element.style.height = `${Math.max(height, element.scrollHeight + 2)}px`;
     });
-
-    if (!dayOccurrences.length) {
-      const empty = document.createElement('p');
-      empty.className = 'empty-day';
-      empty.innerHTML = '<span>○</span>Nothing planned';
-      timeline.appendChild(empty);
-    }
     grid.appendChild(timeline);
   });
 
