@@ -6,8 +6,9 @@ const IDB_NAME = 'homeboard-household-planner-storage';
 const IDB_STORE = 'planner-data';
 const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
+const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260918-1';
+const APP_VERSION = '20260918-3';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -15,6 +16,7 @@ const LEGACY_STORAGE_KEYS = [
 ];
 
 let loadedDataFromStorage = false;
+let editingTaskId = null;
 
 const state = {
   data: loadData(),
@@ -42,9 +44,12 @@ const els = {
   nextWeekButton: document.querySelector('#nextWeekButton'),
   todayButton: document.querySelector('#todayButton'),
   eventDialog: document.querySelector('#eventDialog') || document.querySelector('#taskDialog'),
+  dialogTitle: document.querySelector('#dialogTitle'),
   taskForm: document.querySelector('#taskForm'),
   closeDialogButton: document.querySelector('#closeDialogButton'),
   cancelDialogButton: document.querySelector('#cancelDialogButton'),
+  deleteEventButton: document.querySelector('#deleteEventButton'),
+  saveEventButton: document.querySelector('#saveEventButton'),
   taskTitle: document.querySelector('#taskTitle'),
   taskDate: document.querySelector('#taskDate'),
   eventStart: document.querySelector('#eventStart') || document.querySelector('#taskTime'),
@@ -105,6 +110,7 @@ function bindEvents() {
   els.taskForm.addEventListener('submit', handleTaskSubmit);
   els.closeDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
   els.cancelDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
+  if (els.deleteEventButton) els.deleteEventButton.addEventListener('click', deleteEditingEvent);
   els.eventDialog.addEventListener('click', closeDialogOnBackdrop);
 
   els.todoForm.addEventListener('submit', (event) => {
@@ -243,6 +249,18 @@ function renderWeek() {
     const timeline = document.createElement('div');
     timeline.className = `day-timeline${key === todayKey ? ' today' : ''}`;
     timeline.style.setProperty('--untimed-height', `${untimedHeight}px`);
+    timeline.addEventListener('click', (event) => {
+      if (event.target.closest('.task-item')) return;
+      const bounds = timeline.getBoundingClientRect();
+      const y = event.clientY - bounds.top;
+      let startTime = '';
+      if (y >= untimedHeight) {
+        const clickedMinutes = range.startMinutes + ((y - untimedHeight) / hourHeight) * 60;
+        const snappedMinutes = Math.max(0, Math.min(24 * 60 - 15, Math.round(clickedMinutes / 15) * 15));
+        startTime = formatInputTime(snappedMinutes);
+      }
+      openEventDialog({ date: key, startTime });
+    });
 
     const lines = document.createElement('div');
     lines.className = 'timeline-lines';
@@ -290,9 +308,12 @@ function renderWeek() {
 }
 
 function createTaskElement({ task, dateKey: occurrenceDate }) {
-  const item = document.createElement('label');
+  const item = document.createElement('article');
   const kind = task.kind === 'expiry' ? 'expiry' : task.kind === 'event' ? 'event' : 'task';
   item.className = `task-item ${kind}`;
+  item.setAttribute('role', 'button');
+  item.setAttribute('tabindex', '0');
+  item.setAttribute('aria-label', `Open ${task.title}`);
   const assigneeLabel = task.assignee === 'me' ? 'Me' : task.assignee === 'partner' ? 'Partner' : 'Both';
   const assigneeClass = task.assignee === 'me' ? 'assignee-me' : task.assignee === 'partner' ? 'assignee-partner' : 'assignee-both';
   const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'monthly' ? 'Every month' : '';
@@ -312,20 +333,34 @@ function createTaskElement({ task, dateKey: occurrenceDate }) {
     </span>
   `;
   item.querySelector('.task-check').addEventListener('change', () => completeTask(task.id, occurrenceDate, task.title));
+  const openTask = (event) => {
+    if (event.target.closest('.task-check')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openEventDialog({ task, date: task.date || occurrenceDate });
+  };
+  item.addEventListener('click', openTask);
+  item.addEventListener('keydown', (event) => {
+    if (event.target.closest('.task-check')) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    openTask(event);
+  });
   return item;
 }
 
 function getTimelineRange(occurrences) {
   const timed = occurrences.map((item) => getTaskTimeBounds(item.task)).filter(Boolean);
-  if (!timed.length) return { startMinutes: 6 * 60, endMinutes: 24 * 60, startHour: 6, endHour: 24 };
+  const defaultStartHour = 6;
+  const defaultEndHour = 21;
+  if (!timed.length) return { startMinutes: defaultStartHour * 60, endMinutes: defaultEndHour * 60, startHour: defaultStartHour, endHour: defaultEndHour };
   let earliest = timed[0].start;
   let latest = timed[0].end;
   timed.forEach((bounds) => {
     earliest = Math.min(earliest, bounds.start);
     latest = Math.max(latest, bounds.end);
   });
-  const startHour = Math.max(0, Math.floor(earliest / 60));
-  const endHour = Math.min(24, Math.max(startHour + 1, Math.ceil(latest / 60)));
+  const startHour = Math.max(0, Math.min(defaultStartHour, Math.floor(earliest / 60)));
+  const endHour = Math.min(24, Math.max(defaultEndHour, startHour + 1, Math.ceil(latest / 60)));
   return { startMinutes: startHour * 60, endMinutes: endHour * 60, startHour, endHour };
 }
 
@@ -416,8 +451,7 @@ function handleTaskSubmit(event) {
     showToast('End time must be after start time');
     return;
   }
-  state.data.tasks.push({
-    id: createId(),
+  const updatedTask = {
     title,
     date,
     startTime,
@@ -426,19 +460,52 @@ function handleTaskSubmit(event) {
     kind: String(els.taskType.value || 'task'),
     recurrence: String(els.taskRepeat.value || 'none'),
     updatedAt: nowIso(),
-  });
+  };
+  const editingTask = editingTaskId ? state.data.tasks.find((task) => task.id === editingTaskId) : null;
+  if (editingTask) {
+    Object.assign(editingTask, updatedTask);
+  } else {
+    state.data.tasks.push({ id: createId(), ...updatedTask });
+  }
   persist();
   closeDialog(els.eventDialog);
   state.weekStart = startOfWeek(parseDate(date));
   render();
-  showToast('Event added to the week');
+  showToast(editingTask ? 'Event updated' : 'Event added to the week');
 }
 
-function openEventDialog() {
+function openEventDialog(options = {}) {
+  const task = options.task || null;
+  editingTaskId = task ? task.id : null;
   els.taskForm.reset();
-  els.taskDate.value = dateKey(new Date());
+  if (els.dialogTitle) els.dialogTitle.textContent = task ? 'Edit event' : 'Add an event';
+  if (els.saveEventButton) els.saveEventButton.textContent = task ? 'Save changes' : 'Save event';
+  if (els.deleteEventButton) els.deleteEventButton.hidden = !task;
+  els.taskTitle.value = task ? task.title || '' : '';
+  els.taskDate.value = options.date || (task && task.date) || dateKey(new Date());
+  els.eventStart.value = options.startTime !== undefined ? options.startTime : task && task.startTime || '';
+  els.eventEnd.value = task && task.endTime || '';
+  els.taskAssignee.value = task && task.assignee || 'both';
+  els.taskType.value = task && task.kind || 'event';
+  els.taskRepeat.value = task && task.recurrence || 'none';
   openDialog(els.eventDialog);
   window.setTimeout(() => els.taskTitle.focus(), 30);
+}
+
+function deleteEditingEvent() {
+  if (!editingTaskId) return;
+  const task = state.data.tasks.find((entry) => entry.id === editingTaskId);
+  if (!task) return;
+  if (!window.confirm(`Delete “${task.title}”?`)) return;
+  markDeleted('tasks', task.id);
+  state.data.tasks = state.data.tasks.filter((entry) => entry.id !== task.id);
+  Object.keys(state.data.completions || {}).forEach((key) => {
+    if (key.indexOf(`${task.id}::`) === 0) delete state.data.completions[key];
+  });
+  persist();
+  closeDialog(els.eventDialog);
+  render();
+  showToast('Event deleted');
 }
 
 function handleListClick(event) {
@@ -570,9 +637,18 @@ function loadSyncSession() {
   return null;
 }
 
+function loadSyncEmail() {
+  try {
+    return String(localStorage.getItem(SYNC_EMAIL_KEY) || '');
+  } catch (error) {
+    return '';
+  }
+}
+
 function initializeSync() {
   if (els.syncProjectUrl) els.syncProjectUrl.value = syncState.config.url;
   if (els.syncPublishableKey) els.syncPublishableKey.value = syncState.config.key;
+  if (els.syncEmail) els.syncEmail.value = loadSyncEmail() || (syncState.session && syncState.session.user && syncState.session.user.email) || '';
   renderSyncStatus();
   if (syncState.session && syncState.config.url && syncState.config.key) {
     startSyncPolling();
@@ -587,13 +663,22 @@ function saveSyncConfig() {
     setSyncStatus('Enter the HTTPS project URL and publishable key.', 'error');
     return;
   }
+  const connectionChanged = syncState.config.url !== url || syncState.config.key !== key;
   syncState.config = { url, key };
-  syncState.session = null;
-  stopSyncPolling();
+  if (connectionChanged) {
+    syncState.session = null;
+    stopSyncPolling();
+    localStorage.removeItem(SYNC_SESSION_KEY);
+  }
   localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(syncState.config));
-  localStorage.removeItem(SYNC_SESSION_KEY);
-  renderSyncStatus('Connection saved. Sign in below.');
-  showToast('Cloud connection saved');
+  if (syncState.session && !connectionChanged) {
+    renderSyncStatus('Connection saved. Already signed in; syncing automatically.', 'connected');
+    startSyncPolling();
+    syncNow(false);
+  } else {
+    renderSyncStatus('Connection saved. Sign in below.');
+  }
+  showToast(connectionChanged ? 'Cloud connection saved' : 'Connection remembered on this device');
 }
 
 async function signIn(createAccount) {
@@ -607,6 +692,7 @@ async function signIn(createAccount) {
     setSyncStatus('Enter an email and a password of at least 8 characters.', 'error');
     return;
   }
+  localStorage.setItem(SYNC_EMAIL_KEY, email);
   setSyncStatus(createAccount ? 'Creating account…' : 'Signing in…');
   try {
     const path = createAccount ? '/auth/v1/signup' : '/auth/v1/token?grant_type=password';
@@ -1012,6 +1098,7 @@ function closeDialog(dialog) {
   } else {
     dialog.removeAttribute('open');
   }
+  if (dialog === els.eventDialog) editingTaskId = null;
   document.body.classList.remove('modal-open');
 }
 
@@ -1039,6 +1126,12 @@ function formatHourLabel(minutes) {
   const suffix = hour >= 12 ? 'PM' : 'AM';
   const displayHour = hour % 12 || 12;
   return `${displayHour} ${suffix}`;
+}
+function formatInputTime(minutes) {
+  const safeMinutes = Math.max(0, Math.min(24 * 60 - 1, minutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const remainingMinutes = safeMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(remainingMinutes).padStart(2, '0')}`;
 }
 function formatEventTime(task) {
   const start = task.startTime || '';

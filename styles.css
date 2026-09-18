@@ -65,6 +65,8 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .primary-button span { font-size: 20px; font-weight: 400; vertical-align: -1px; }
 .secondary-button { min-height: 43px; padding: 0 17px; background: var(--violet-soft); color: var(--violet-dark); }
 .secondary-button:hover { background: #e5e3ff; }
+.danger-button { min-height: 43px; padding: 0 17px; border: 0; border-radius: 12px; background: #fff0f0; color: #c75c63; font-weight: 700; }
+.danger-button:hover { background: #ffe0e2; }
 .text-button { padding: 9px 12px; background: transparent; color: var(--violet); font-size: 12px; }
 .text-button:hover { background: var(--violet-soft); }
 .subtle-button { padding: 7px 0; background: transparent; color: var(--muted); font-size: 11px; }
@@ -107,7 +109,8 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .empty-day { position: absolute; top: calc(var(--untimed-height) + 25px); right: 0; left: 0; margin: 16px 3px; color: #b4b8c4; font-size: 11px; line-height: 1.5; text-align: center; }
 .empty-day span { display: block; margin-bottom: 5px; color: #ced1d9; font-size: 20px; }
 
-.task-item { position: relative; display: flex; gap: 8px; padding: 10px 8px 10px 9px; border: 1px solid #e9e9f2; border-radius: 12px; background: #fff; box-shadow: 0 3px 9px rgba(37, 41, 73, .035); }
+.task-item { position: relative; display: flex; gap: 8px; padding: 10px 8px 10px 9px; border: 1px solid #e9e9f2; border-radius: 12px; background: #fff; box-shadow: 0 3px 9px rgba(37, 41, 73, .035); cursor: pointer; transition: transform .16s, box-shadow .16s; }
+.task-item:hover, .task-item:focus-visible { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(37, 41, 73, .1); outline: none; }
 .task-item.event { background: var(--mint-soft); border-color: #c8eadc; }
 .task-item.task { background: #fff0f0; border-color: #f1d0d2; }
 .task-item.expiry { background: var(--amber-soft); border-color: #f8e4c3; }
@@ -183,6 +186,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .large-input:focus { border-color: #b8b7f7; box-shadow: 0 0 0 3px rgba(105,103,232,.1); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 6px; }
+.dialog-actions .danger-button { margin-right: auto; }
 .settings-copy { margin: -8px 0 21px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 9px; }
 .file-button { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
