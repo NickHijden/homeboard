@@ -92,6 +92,15 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .week-summary { display: flex; align-items: center; gap: 9px; min-height: 36px; margin: 22px 0 16px; padding: 9px 13px; border-radius: 12px; background: #fafaff; color: var(--muted); font-size: 12px; }
 .week-summary strong { color: var(--ink); }
 .summary-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--violet); }
+.any-day-board { margin: 12px 0 12px; padding: 10px 12px; border: 1px solid #e4e3fa; border-radius: 14px; background: rgba(255, 255, 255, .78); box-shadow: 0 5px 15px rgba(45, 49, 74, .035); }
+.any-day-heading { display: flex; align-items: baseline; gap: 9px; margin-bottom: 7px; color: var(--muted); font-size: 11px; }
+.any-day-heading .eyebrow { margin: 0; color: var(--violet); font-size: 9px; }
+.any-day-rows { display: grid; gap: 5px; }
+.any-day-row { display: flex; align-items: stretch; gap: 9px; min-width: 0; }
+.any-day-label { display: flex; flex: 0 0 62px; align-items: center; color: var(--ink); font-size: 11px; font-weight: 800; }
+.any-day-items { display: flex; flex: 1 1 auto; min-width: 0; gap: 6px; overflow-x: auto; padding: 2px 1px; }
+.any-day-task { flex: 0 0 205px; min-width: 150px; max-width: 260px; padding: 7px 7px 7px 8px; }
+.any-day-task .task-meta { margin-top: 4px; }
 
 .week-grid { display: grid; grid-template-columns: 58px repeat(7, minmax(118px, 1fr)); grid-template-rows: auto var(--timeline-height); min-width: 1040px; min-height: 100%; gap: 0 8px; }
 .week-grid-wrapper { height: 100%; overflow: auto; padding-bottom: 4px; }
@@ -114,10 +123,10 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .language-backdrop { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 0; display: flex; flex-wrap: wrap; align-content: space-around; justify-content: space-around; overflow: hidden; opacity: .14; pointer-events: none; }
 .language-backdrop span { width: 50%; color: #c68e4b; font-size: 34px; line-height: 1; text-align: center; filter: saturate(.8); }
 .dutch-backdrop span { color: #6e91c8; }
-.untimed-lane { position: absolute; top: 0; right: 0; left: 0; z-index: 4; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: stretch; gap: 3px; height: var(--untimed-height); padding: 4px; border-bottom: 1px dashed #e4e5ec; background: rgba(255, 255, 255, .82); overflow: hidden; }
+.untimed-lane { position: absolute; top: 0; right: 0; left: 0; z-index: 5; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: stretch; gap: 3px; height: var(--untimed-height); padding: 4px; border-bottom: 1px dashed #e4e5ec; background: rgba(255, 255, 255, .64); overflow: hidden; }
 .untimed-event { position: relative; display: flex; min-height: 0; margin: 0; padding: 5px 6px; }
 .untimed-event:only-child { grid-column: 1 / -1; }
-.timed-event { position: absolute; z-index: 3; display: flex; min-height: 60px; margin: 0; padding: 7px 6px; overflow: hidden; }
+.timed-event { position: absolute; z-index: 4; display: flex; min-height: 60px; margin: 0; padding: 7px 6px; overflow: hidden; }
 .day-name { margin: 0 0 3px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .day-number { margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 23px; font-weight: 600; letter-spacing: -.06em; }
 .language-note { display: inline-flex; max-width: 100%; margin-top: 5px; padding: 3px 5px; border-radius: 6px; font-size: 8px; font-weight: 700; line-height: 1.15; white-space: nowrap; }
@@ -208,6 +217,9 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .field-label { display: block; margin: 0 0 7px; color: #6e7380; font-size: 11px; font-weight: 700; }
 .optional { color: #b0b3bd; font-weight: 500; }
 .large-input { width: 100%; height: 43px; margin-bottom: 17px; padding: 0 12px; border: 1px solid var(--line); border-radius: 11px; outline: none; background: #fcfcfe; color: var(--ink); font-size: 13px; }
+.large-input:disabled { opacity: .55; background: #f1f1f6; }
+.any-day-toggle { display: flex; align-items: center; gap: 6px; margin: -8px 0 17px; color: var(--violet-dark); font-size: 11px; font-weight: 700; cursor: pointer; }
+.any-day-toggle input { width: 15px; height: 15px; margin: 0; accent-color: var(--violet); }
 .time-input-wrap { position: relative; margin-bottom: 17px; }
 .time-input-wrap .large-input { margin-bottom: 0; padding-right: 36px; }
 .time-clear { position: absolute; top: 50%; right: 7px; display: grid; place-items: center; width: 27px; height: 27px; border: 0; border-radius: 50%; background: #eeedff; color: var(--violet); font-size: 19px; line-height: 1; transform: translateY(-50%); }
@@ -288,6 +300,16 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .week-title-row h2 { font-size: 21px; }
   .muted { margin-top: 4px; font-size: 11px; }
   .week-summary { min-height: 31px; margin: 12px 0 10px; padding: 6px 10px; font-size: 10px; }
+  .any-day-board { margin: 7px 0 8px; padding: 6px 7px; border-radius: 10px; }
+  .any-day-heading { gap: 5px; margin-bottom: 4px; font-size: 8px; }
+  .any-day-heading .eyebrow { font-size: 7px; }
+  .any-day-rows { gap: 3px; }
+  .any-day-row { gap: 5px; }
+  .any-day-label { flex-basis: 43px; font-size: 8px; }
+  .any-day-items { gap: 3px; padding: 1px; }
+  .any-day-task { flex-basis: 145px; min-width: 115px; padding: 4px; border-radius: 7px; }
+  .any-day-task .task-title { font-size: 8px; }
+  .any-day-task .task-meta { margin-top: 2px; font-size: 7px; }
   #weekGrid { flex: 1 1 auto; min-height: 0; }
   .week-grid { min-width: 0; width: 100%; gap: 0 4px; grid-template-columns: 42px repeat(7, minmax(0, 1fr)); grid-template-rows: auto var(--timeline-height); }
   .week-grid-wrapper { height: 100%; overflow: auto; }

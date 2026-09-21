@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20260921-5" />
+    <link rel="stylesheet" href="styles.css?v=20260921-6" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -43,6 +43,7 @@
             <button class="text-button" id="todayButton" type="button">Jump to today</button>
           </div>
 
+          <section class="any-day-board" id="anyDayBoard" aria-label="Tasks without a fixed day" hidden></section>
           <div class="week-summary" id="weekSummary" aria-live="polite"></div>
           <div id="weekGrid" aria-live="polite"></div>
         </section>
@@ -108,6 +109,10 @@
           <div class="field-group">
             <label class="field-label" for="taskDate">Date</label>
             <input class="large-input" id="taskDate" name="date" type="date" required />
+            <label class="any-day-toggle" for="taskAnyDay">
+              <input id="taskAnyDay" name="anyDay" type="checkbox" />
+              <span>No fixed day</span>
+            </label>
           </div>
           <div class="field-group">
             <label class="field-label" for="eventStart">Start time <span class="optional">optional</span></label>
@@ -214,6 +219,6 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260921-5" defer></script>
+    <script src="app.js?v=20260921-6" defer></script>
   </body>
 </html>

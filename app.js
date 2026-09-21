@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-5';
+const APP_VERSION = '20260921-6';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -38,6 +38,7 @@ const els = {
   weekHeading: document.querySelector('#weekHeading'),
   weekRange: document.querySelector('#weekRange'),
   weekSummary: document.querySelector('#weekSummary'),
+  anyDayBoard: document.querySelector('#anyDayBoard'),
   weekGrid: document.querySelector('#weekGrid'),
   addEventButton: document.querySelector('#addEventButton') || document.querySelector('#addTaskButton'),
   previousWeekButton: document.querySelector('#previousWeekButton'),
@@ -52,6 +53,7 @@ const els = {
   saveEventButton: document.querySelector('#saveEventButton'),
   taskTitle: document.querySelector('#taskTitle'),
   taskDate: document.querySelector('#taskDate'),
+  taskAnyDay: document.querySelector('#taskAnyDay'),
   eventStart: document.querySelector('#eventStart') || document.querySelector('#taskTime'),
   eventEnd: document.querySelector('#eventEnd'),
   clearEventStartButton: document.querySelector('#clearEventStartButton'),
@@ -111,6 +113,7 @@ function bindEvents() {
   });
 
   els.taskForm.addEventListener('submit', handleTaskSubmit);
+  if (els.taskAnyDay) els.taskAnyDay.addEventListener('change', updateAnyDayField);
   els.closeDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
   els.cancelDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
   if (els.deleteEventButton) els.deleteEventButton.addEventListener('click', deleteEditingEvent);
@@ -178,9 +181,56 @@ function bindEvents() {
 function render() {
   rollOverdueRecurringTasks();
   renderWeekHeader();
+  renderAnyDayBoard();
   renderWeek();
   renderList('todos', els.todoList, els.todoCount, 'Nothing here yet. Add a small win above.');
   renderList('groceries', els.groceryList, els.groceryCount, 'Your shopping list is clear.');
+}
+
+function renderAnyDayBoard() {
+  if (!els.anyDayBoard) return;
+  const openTasks = state.data.tasks.filter((task) => task.anyDay && isAnyDayTaskOpen(task));
+  if (!openTasks.length) {
+    els.anyDayBoard.hidden = true;
+    els.anyDayBoard.innerHTML = '';
+    return;
+  }
+
+  const rows = [
+    { key: 'me', label: 'Nick', tasks: openTasks.filter((task) => task.assignee === 'me' || task.assignee === 'both') },
+    { key: 'partner', label: 'Stephany', tasks: openTasks.filter((task) => task.assignee === 'partner' || task.assignee === 'both') },
+  ];
+  els.anyDayBoard.hidden = false;
+  els.anyDayBoard.innerHTML = `
+    <div class="any-day-heading">
+      <span class="eyebrow">NO FIXED DAY</span>
+      <span>Small wins whenever they fit</span>
+    </div>
+    <div class="any-day-rows"></div>
+  `;
+  const rowsElement = els.anyDayBoard.querySelector('.any-day-rows');
+  rows.forEach((row) => {
+    const rowElement = document.createElement('div');
+    rowElement.className = `any-day-row any-day-row-${row.key}`;
+    rowElement.innerHTML = `<span class="any-day-label">${row.label}</span><div class="any-day-items"></div>`;
+    const itemsElement = rowElement.querySelector('.any-day-items');
+    row.tasks.forEach((task) => {
+      const item = createTaskElement({
+        task,
+        dateKey: 'any-day',
+        onComplete: () => completeAnyDayTask(task.id, task.title),
+      });
+      item.classList.add('any-day-task');
+      itemsElement.appendChild(item);
+    });
+    rowsElement.appendChild(rowElement);
+  });
+}
+
+function isAnyDayTaskOpen(task) {
+  if (!isRecurringTask(task)) return !task.anyDayCompleted;
+  const nextDate = parseDate(task.nextAnyDayDate);
+  return !nextDate || dateKey(new Date()) >= dateKey(nextDate);
 }
 
 function renderWeekHeader() {
@@ -204,8 +254,10 @@ function renderWeek() {
   const completedCount = occurrences.filter((item) => isCompleted(item.task.id, item.dateKey)).length;
   const openOccurrences = occurrences.filter((item) => !isCompleted(item.task.id, item.dateKey));
   const openCount = openOccurrences.length;
+  const anyDayOpenCount = state.data.tasks.filter((task) => task.anyDay && isAnyDayTaskOpen(task)).length;
+  const totalOpenCount = openCount + anyDayOpenCount;
   const expiryCount = openOccurrences.filter((item) => item.task.kind === 'expiry').length;
-  els.weekSummary.innerHTML = `<span class="summary-dot"></span><span><strong>${openCount} ${openCount === 1 ? 'item' : 'items'}</strong> on the board${expiryCount ? ` · <strong class="expiry-summary">${expiryCount} use-by ${expiryCount === 1 ? 'reminder' : 'reminders'}</strong>` : ''}${completedCount ? ` · ${completedCount} done` : ''}</span>`;
+  els.weekSummary.innerHTML = `<span class="summary-dot"></span><span><strong>${totalOpenCount} ${totalOpenCount === 1 ? 'item' : 'items'}</strong> on the board${expiryCount ? ` · <strong class="expiry-summary">${expiryCount} use-by ${expiryCount === 1 ? 'reminder' : 'reminders'}</strong>` : ''}${completedCount ? ` · ${completedCount} done` : ''}</span>`;
 
   els.weekGrid.innerHTML = '';
   const wrapper = document.createElement('div');
@@ -342,7 +394,7 @@ function renderWeek() {
   els.weekGrid.appendChild(wrapper);
 }
 
-function createTaskElement({ task, dateKey: occurrenceDate }) {
+function createTaskElement({ task, dateKey: occurrenceDate, onComplete }) {
   const item = document.createElement('article');
   const kind = task.kind === 'expiry' ? 'expiry' : task.kind === 'wellness' ? 'wellness' : task.kind === 'event' ? 'event' : 'task';
   item.className = `task-item ${kind}`;
@@ -373,7 +425,10 @@ function createTaskElement({ task, dateKey: occurrenceDate }) {
       </span>
     </span>
   `;
-  item.querySelector('.task-check').addEventListener('change', () => completeTask(task.id, occurrenceDate, task.title));
+  item.querySelector('.task-check').addEventListener('change', () => {
+    if (onComplete) onComplete();
+    else completeTask(task.id, occurrenceDate, task.title);
+  });
   const openTask = (event) => {
     if (event.target.closest('.task-check')) return;
     event.preventDefault();
@@ -468,6 +523,7 @@ function getOccurrencesForDay(day) {
 }
 
 function isDueOn(task, day) {
+  if (task.anyDay) return false;
   const anchor = parseDate(task.date);
   if (!anchor || day < anchor) return false;
   return dateKey(anchor) === dateKey(day);
@@ -557,15 +613,45 @@ function completeTask(taskId, occurrenceDate, title) {
   showToast(`“${title}” marked done`, 'Undo');
 }
 
+function completeAnyDayTask(taskId, title) {
+  const task = state.data.tasks.find((entry) => entry.id === taskId);
+  if (!task) return;
+  const previous = {
+    anyDayCompleted: task.anyDayCompleted,
+    nextAnyDayDate: task.nextAnyDayDate,
+    updatedAt: task.updatedAt,
+  };
+  if (isRecurringTask(task)) {
+    task.nextAnyDayDate = dateKey(addRecurringDate(new Date(), task.recurrence));
+    delete task.anyDayCompleted;
+  } else {
+    task.anyDayCompleted = true;
+  }
+  task.updatedAt = nowIso();
+  state.lastUndo = () => {
+    if (previous.anyDayCompleted === undefined) delete task.anyDayCompleted;
+    else task.anyDayCompleted = previous.anyDayCompleted;
+    if (previous.nextAnyDayDate === undefined) delete task.nextAnyDayDate;
+    else task.nextAnyDayDate = previous.nextAnyDayDate;
+    task.updatedAt = previous.updatedAt;
+    persist();
+    render();
+  };
+  persist();
+  render();
+  showToast(`“${title}” marked done`, 'Undo');
+}
+
 function handleTaskSubmit(event) {
   event.preventDefault();
   // Read the controls directly instead of using FormData. This is more
   // reliable on the older Safari shipped with iPad mini 2.
   const title = String(els.taskTitle.value || '').trim();
-  const date = String(els.taskDate.value || '');
+  const anyDay = Boolean(els.taskAnyDay && els.taskAnyDay.checked);
+  const date = anyDay ? '' : String(els.taskDate.value || '');
   const startTime = String(els.eventStart && els.eventStart.value || '');
   const endTime = String(els.eventEnd && els.eventEnd.value || '');
-  if (!title || !date) return;
+  if (!title || (!anyDay && !date)) return;
   if (startTime && endTime && endTime < startTime) {
     showToast('End time must be after start time');
     return;
@@ -573,6 +659,7 @@ function handleTaskSubmit(event) {
   const updatedTask = {
     title,
     date,
+    anyDay,
     startTime,
     endTime,
     assignee: String(els.taskAssignee.value || 'both'),
@@ -589,7 +676,7 @@ function handleTaskSubmit(event) {
   }
   persist();
   closeDialog(els.eventDialog);
-  state.weekStart = startOfWeek(parseDate(date));
+  if (date) state.weekStart = startOfWeek(parseDate(date));
   render();
   showToast(editingTask ? 'Event updated' : 'Event added to the week');
 }
@@ -602,16 +689,27 @@ function openEventDialog(options = {}) {
   if (els.saveEventButton) els.saveEventButton.textContent = task ? 'Save changes' : 'Save event';
   if (els.deleteEventButton) els.deleteEventButton.hidden = !task;
   els.taskTitle.value = task ? task.title || '' : '';
-  els.taskDate.value = options.date || (task && task.date) || dateKey(new Date());
+  els.taskAnyDay.checked = Boolean(task && task.anyDay);
+  els.taskDate.value = task && task.anyDay ? '' : options.date || (task && task.date) || dateKey(new Date());
   els.eventStart.value = options.startTime !== undefined ? options.startTime : task && task.startTime || '';
   els.eventEnd.value = task && task.endTime || '';
   els.taskAssignee.value = task && task.assignee || 'both';
   els.taskType.value = task && task.kind || 'event';
   els.taskRepeat.value = task && task.recurrence || 'none';
   if (els.taskReminder) els.taskReminder.value = task && task.reminder || 'day-before';
+  updateAnyDayField();
   updateTimeClearButtons();
   openDialog(els.eventDialog);
   window.setTimeout(() => els.taskTitle.focus(), 30);
+}
+
+function updateAnyDayField() {
+  if (!els.taskAnyDay || !els.taskDate) return;
+  const anyDay = els.taskAnyDay.checked;
+  els.taskDate.disabled = anyDay;
+  els.taskDate.required = !anyDay;
+  if (anyDay) els.taskDate.value = '';
+  else if (!els.taskDate.value) els.taskDate.value = dateKey(new Date());
 }
 
 function clearTimeInput(input) {
@@ -1055,6 +1153,7 @@ function normalizeTask(task) {
   normalized.id = normalized.id || createId();
   normalized.startTime = normalized.startTime || normalized.time || '';
   normalized.endTime = normalized.endTime || '';
+  normalized.anyDay = Boolean(normalized.anyDay);
   normalized.reminder = normalized.reminder || 'day-before';
   delete normalized.time;
   return normalized;
