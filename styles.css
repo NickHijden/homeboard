@@ -334,3 +334,13 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .subtle-button { padding: 4px 0; font-size: 9px; }
   .save-status { font-size: 9px; }
 }
+
+/* The iPad mini 2 has a short Safari viewport in landscape. Keep a full
+   6 AM–midnight timeline visible instead of making the final hours scroll
+   below the screen. */
+@media (min-width: 760px) and (orientation: landscape) and (max-height: 760px) {
+  :root { --calendar-hour-height: 22px; }
+  .dashboard-grid { height: calc(100vh - 70px); }
+  .time-axis-header { min-height: 48px; }
+  .day-header { min-height: 48px; }
+}

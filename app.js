@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-2';
+const APP_VERSION = '20260921-3';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -225,7 +225,7 @@ function renderWeek() {
   const hasTimedItems = openOccurrences.some((item) => Boolean(getTaskTimeBounds(item.task)));
   // Cards have a minimum height, so leave a little room below an event that
   // ends exactly at the last visible hour instead of clipping it.
-  const bottomBuffer = hasTimedItems ? 72 : 0;
+  const bottomBuffer = hasTimedItems ? (compactTimeline ? 44 : 72) : 0;
   const timelineHeight = Math.max(1, ((range.endMinutes - range.startMinutes) / 60) * hourHeight + bottomBuffer);
   grid.style.setProperty('--timeline-height', `${timelineHeight}px`);
   grid.style.setProperty('--hour-height', `${hourHeight}px`);

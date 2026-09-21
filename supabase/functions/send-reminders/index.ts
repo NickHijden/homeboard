@@ -37,7 +37,7 @@ const SIGN_OFFS = [
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-homeboard-cron-secret',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-homeboard-cron-secret, x-homeboard-test-secret',
 };
 
 Deno.serve(async (request) => {
