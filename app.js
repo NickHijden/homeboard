@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-8';
+const APP_VERSION = '20260921-9';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -795,7 +795,7 @@ function openEventDialog(options = {}) {
   if (els.deleteEventButton) els.deleteEventButton.hidden = !task;
   els.taskTitle.value = task ? task.title || '' : '';
   els.taskAnyDay.checked = Boolean(task && task.anyDay);
-  els.taskDate.value = task && task.anyDay ? '' : options.date || (task && task.date) || dateKey(new Date());
+  els.taskDate.value = task && task.anyDay ? '' : options.date || (task && task.date) || dateKey(state.weekStart);
   els.eventStart.value = options.startTime !== undefined ? options.startTime : task && task.startTime || '';
   els.eventEnd.value = task && task.endTime || '';
   els.taskAssignee.value = task && task.assignee || 'both';
@@ -814,7 +814,7 @@ function updateAnyDayField() {
   els.taskDate.disabled = anyDay;
   els.taskDate.required = !anyDay;
   if (anyDay) els.taskDate.value = '';
-  else if (!els.taskDate.value) els.taskDate.value = dateKey(new Date());
+  else if (!els.taskDate.value) els.taskDate.value = dateKey(state.weekStart);
 }
 
 function clearTimeInput(input) {
