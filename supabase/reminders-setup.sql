@@ -1,6 +1,10 @@
 -- Email reminders for Homeboard
 -- Run the table section once in Supabase SQL Editor.
 
+-- Required by the scheduled HTTP request below.
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
 create table if not exists public.homeboard_reminder_log (
   planner_id uuid not null references public.planner_documents(id) on delete cascade,
   task_id text not null,
