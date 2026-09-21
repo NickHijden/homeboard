@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-3';
+const APP_VERSION = '20260921-4';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -415,16 +415,39 @@ function layoutTimedOccurrences(occurrences) {
     const rightBounds = getTaskTimeBounds(right.task);
     return leftBounds.start - rightBounds.start || leftBounds.end - rightBounds.end || left.task.title.localeCompare(right.task.title);
   });
-  const laneEnds = [];
   const placements = [];
+  let group = null;
+
+  // Build connected overlap groups first. This keeps the lane count local to
+  // the events that actually overlap: a late two-column group must not make
+  // an unrelated event elsewhere in the day half-width.
   sorted.forEach((item) => {
     const bounds = getTaskTimeBounds(item.task);
-    let lane = 0;
-    while (lane < laneEnds.length && laneEnds[lane] > bounds.start) lane += 1;
-    laneEnds[lane] = bounds.end;
-    placements.push({ item, lane });
+    if (!group || bounds.start >= group.end) {
+      group = { end: bounds.end, items: [] };
+      group.items.push(item);
+      placements.push(group);
+      return;
+    }
+    group.end = Math.max(group.end, bounds.end);
+    group.items.push(item);
   });
-  return placements.map((placement) => ({ ...placement, laneCount: Math.max(1, laneEnds.length) }));
+
+  const layout = [];
+  placements.forEach((overlapGroup) => {
+    const laneEnds = [];
+    const groupPlacements = [];
+    overlapGroup.items.forEach((item) => {
+      const bounds = getTaskTimeBounds(item.task);
+      let lane = 0;
+      while (lane < laneEnds.length && laneEnds[lane] > bounds.start) lane += 1;
+      laneEnds[lane] = bounds.end;
+      groupPlacements.push({ item, lane });
+    });
+    const laneCount = Math.max(1, laneEnds.length);
+    groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount }));
+  });
+  return layout;
 }
 
 function isLandscapeTablet() {
