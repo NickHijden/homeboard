@@ -19,6 +19,7 @@
   --event-pink-soft: #fff0f5;
   --wellness-yellow: #b58a24;
   --wellness-yellow-soft: #fff8dc;
+  --calendar-hour-height: 46px;
   --shadow: 0 14px 38px rgba(45, 49, 74, 0.07);
   --radius-lg: 25px;
   --radius-md: 16px;
@@ -94,18 +95,25 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 
 .week-grid { display: grid; grid-template-columns: 58px repeat(7, minmax(118px, 1fr)); grid-template-rows: auto var(--timeline-height); min-width: 1040px; min-height: 100%; gap: 0 8px; }
 .week-grid-wrapper { height: 100%; overflow: auto; padding-bottom: 4px; }
-.timeline-grid { --timeline-height: 736px; --hour-height: 46px; }
+.timeline-grid { --timeline-height: 736px; --hour-height: var(--calendar-hour-height); }
 .time-axis-header { min-height: 68px; border-bottom: 1px solid var(--line); }
 .day-column { flex: 1 1 0; min-height: 532px; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fcfcfe; overflow: hidden; }
 .day-column.today { border-color: #cbcaff; box-shadow: inset 0 3px 0 var(--violet); }
 .day-header { display: flex; align-items: flex-start; justify-content: space-between; min-height: 68px; padding: 15px 13px 11px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.72); }
 .day-header.today { border-color: #cbcaff; box-shadow: inset 0 3px 0 var(--violet); }
+.day-header.language-spanish { background: #fffaf2; }
+.day-header.language-dutch { background: #f3f7ff; }
 .time-axis { position: relative; min-height: var(--timeline-height); }
 .timeline-label { position: absolute; right: 7px; z-index: 2; color: #9da2af; font-size: 10px; font-weight: 700; line-height: 14px; transform: translateY(-50%); white-space: nowrap; }
 .day-timeline { position: relative; min-height: var(--timeline-height); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); background: #fcfcfe; overflow: hidden; }
 .day-timeline.today { border-color: #cbcaff; box-shadow: inset 3px 0 0 var(--violet); }
+.day-timeline.language-spanish { border-color: #f0dfc3; background: #fffdf8; }
+.day-timeline.language-dutch { border-color: #d8e3f8; background: #fbfdff; }
 .working-hours-band { position: absolute; right: 0; left: 0; z-index: 0; border-top: 1px solid rgba(105, 103, 232, .055); border-bottom: 1px solid rgba(105, 103, 232, .055); background: rgba(105, 103, 232, .045); pointer-events: none; }
 .timeline-lines { position: absolute; top: var(--untimed-height); right: 0; bottom: 0; left: 0; z-index: 1; background-image: linear-gradient(to bottom, rgba(216, 218, 229, .78) 1px, transparent 1px); background-size: 100% var(--hour-height); pointer-events: none; }
+.language-backdrop { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 0; display: flex; flex-wrap: wrap; align-content: space-around; justify-content: space-around; overflow: hidden; opacity: .14; pointer-events: none; }
+.language-backdrop span { width: 50%; color: #c68e4b; font-size: 34px; line-height: 1; text-align: center; filter: saturate(.8); }
+.dutch-backdrop span { color: #6e91c8; }
 .untimed-lane { position: absolute; top: 0; right: 0; left: 0; z-index: 4; height: auto; padding: 5px; border-bottom: 1px dashed #e4e5ec; background: rgba(255, 255, 255, .7); overflow: visible; }
 .untimed-event { position: relative; display: flex; min-height: 60px; margin: 0 0 4px; padding: 5px 6px; }
 .timed-event { position: absolute; z-index: 3; display: flex; min-height: 60px; margin: 0; padding: 7px 6px; overflow: hidden; }
@@ -120,6 +128,9 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .empty-day span { display: block; margin-bottom: 5px; color: #ced1d9; font-size: 20px; }
 
 .task-item { position: relative; display: flex; gap: 8px; padding: 10px 8px 10px 9px; border: 1px solid #e9e9f2; border-radius: 12px; background: #fff; box-shadow: 0 3px 9px rgba(37, 41, 73, .035); cursor: pointer; transition: transform .16s, box-shadow .16s; }
+.assignee-decoration { position: absolute; top: -8px; right: 5px; z-index: 5; display: block; font-size: 19px; line-height: 1; pointer-events: none; filter: drop-shadow(0 2px 1px rgba(37, 41, 73, .12)); }
+.crown-decoration { transform: rotate(12deg); }
+.dress-decoration { top: -4px; right: 3px; font-size: 22px; transform: rotate(7deg); transform-origin: top center; }
 .task-item:hover, .task-item:focus-visible { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(37, 41, 73, .1); outline: none; }
 .task-item.event { background: var(--event-pink-soft); border-color: #f2cdda; }
 .task-item.task { background: var(--task-blue-soft); border-color: #c9dcf6; }
@@ -262,6 +273,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 
 /* Wall-tablet landscape layout: keep the complete week visible without page scrolling. */
 @media (min-width: 760px) and (orientation: landscape) {
+  :root { --calendar-hour-height: 30px; }
   html, body { height: 100%; overflow: hidden; }
   .app-shell { width: calc(100% - 22px); height: 100vh; padding: 16px 0; }
   .topbar { margin-bottom: 12px; }
@@ -284,6 +296,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .any-time-label { font-size: 7px; }
   .day-timeline { min-height: var(--timeline-height); }
   .day-header { min-height: 54px; padding: 8px 7px; }
+  .language-note { max-width: 72px; padding: 2px 3px; font-size: 7px; white-space: normal; }
   .day-name { font-size: 9px; letter-spacing: .05em; }
   .day-number { font-size: 19px; }
   .today-label { padding: 3px 4px; font-size: 7px; }
@@ -301,6 +314,9 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .kind-chip { padding: 2px 3px; font-size: 7px; }
   .assignee-chip { gap: 3px; padding: 2px 3px; font-size: 8px; }
   .assignee-dot { width: 5px; height: 5px; }
+  .assignee-decoration { top: -6px; right: 3px; font-size: 15px; }
+  .dress-decoration { top: -3px; right: 1px; font-size: 18px; }
+  .language-backdrop span { font-size: 25px; }
   .side-stack { flex-basis: 220px; height: 100%; gap: 10px; overflow: hidden; }
   .list-card { padding: 13px 11px 10px; }
   .list-card-heading { margin-bottom: 9px; }

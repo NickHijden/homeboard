@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-1';
+const APP_VERSION = '20260921-2';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -59,6 +59,7 @@ const els = {
   taskAssignee: document.querySelector('#taskAssignee'),
   taskType: document.querySelector('#taskType'),
   taskRepeat: document.querySelector('#taskRepeat'),
+  taskReminder: document.querySelector('#taskReminder'),
   todoForm: document.querySelector('#todoForm'),
   todoInput: document.querySelector('#todoInput'),
   todoList: document.querySelector('#todoList'),
@@ -212,7 +213,11 @@ function renderWeek() {
   grid.className = 'week-grid timeline-grid';
 
   const range = getTimelineRange(openOccurrences);
-  const hourHeight = isLandscapeTablet() ? 30 : 46;
+  // Read the same responsive value that paints the horizontal grid lines.
+  // Keeping the calculation tied to CSS prevents events from drifting when
+  // Safari and the layout media query disagree about the device orientation.
+  const hourHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--calendar-hour-height')) || 46;
+  const compactTimeline = hourHeight < 40;
   const untimedByDay = days.map((day) => openOccurrences.filter((item) => item.dateKey === dateKey(day) && !getTaskTimeBounds(item.task)));
   // Untimed items sit in a compact overlay at the 6 AM position. They must
   // not move the clock grid down or make the week taller.
@@ -232,7 +237,8 @@ function renderWeek() {
   days.forEach((day, index) => {
     const key = dateKey(day);
     const header = document.createElement('header');
-    header.className = `day-header${key === todayKey ? ' today' : ''}`;
+    const languageClass = index === 5 ? ' language-spanish' : index === 6 ? ' language-dutch' : '';
+    header.className = `day-header${key === todayKey ? ' today' : ''}${languageClass}`;
     header.innerHTML = `
       <div>
         <p class="day-name">${shortWeekdayNames[index]}</p>
@@ -259,7 +265,8 @@ function renderWeek() {
   days.forEach((day, index) => {
     const key = dateKey(day);
     const timeline = document.createElement('div');
-    timeline.className = `day-timeline${key === todayKey ? ' today' : ''}`;
+    const languageClass = index === 5 ? ' language-spanish' : index === 6 ? ' language-dutch' : '';
+    timeline.className = `day-timeline${key === todayKey ? ' today' : ''}${languageClass}`;
     timeline.style.setProperty('--untimed-height', `${untimedHeight}px`);
     timeline.addEventListener('click', (event) => {
       if (event.target.closest('.task-item')) return;
@@ -273,6 +280,13 @@ function renderWeek() {
       }
       openEventDialog({ date: key, startTime });
     });
+
+    const languageBackdrop = document.createElement('div');
+    languageBackdrop.className = `language-backdrop${index === 5 ? ' spanish-backdrop' : index === 6 ? ' dutch-backdrop' : ''}`;
+    languageBackdrop.setAttribute('aria-hidden', 'true');
+    if (index === 5) languageBackdrop.innerHTML = '<span>🌵</span><span>🌮</span><span>🍹</span><span>🎸</span>';
+    if (index === 6) languageBackdrop.innerHTML = '<span>🧀</span><span>🥞</span><span>🧇</span><span>🚲</span>';
+    if (languageBackdrop.innerHTML) timeline.appendChild(languageBackdrop);
 
     if (index < 5) {
       const workingHoursBand = document.createElement('div');
@@ -305,7 +319,7 @@ function renderWeek() {
       const element = createTaskElement(placement.item);
       const bounds = getTaskTimeBounds(placement.item.task);
       const top = ((bounds.start - range.startMinutes) / 60) * hourHeight;
-      const height = Math.max(isLandscapeTablet() ? 31 : 42, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
+      const height = Math.max(compactTimeline ? 31 : 42, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
       const laneWidth = 100 / placement.laneCount;
       element.classList.add('timed-event');
       element.style.top = `${top}px`;
@@ -329,12 +343,18 @@ function createTaskElement({ task, dateKey: occurrenceDate }) {
   item.setAttribute('role', 'button');
   item.setAttribute('tabindex', '0');
   item.setAttribute('aria-label', `Open ${task.title}`);
-  const assigneeLabel = task.assignee === 'me' ? 'Me' : task.assignee === 'partner' ? 'Partner' : 'Both';
+  const assigneeLabel = task.assignee === 'me' ? 'Nick' : task.assignee === 'partner' ? 'Stephany' : 'Both';
   const assigneeClass = task.assignee === 'me' ? 'assignee-me' : task.assignee === 'partner' ? 'assignee-partner' : 'assignee-both';
+  const assigneeDecoration = task.assignee === 'me'
+    ? '<span class="assignee-decoration crown-decoration" aria-hidden="true">👑</span>'
+    : task.assignee === 'partner'
+      ? '<span class="assignee-decoration dress-decoration" aria-hidden="true">👗</span>'
+      : '';
   const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'monthly' ? 'Every month' : '';
   const kindLabel = kind === 'expiry' ? 'Use-by' : kind === 'wellness' ? 'Wellness' : kind === 'event' ? 'Event' : 'Task';
   const eventTime = formatEventTime(task);
   item.innerHTML = `
+    ${assigneeDecoration}
     <input class="task-check" type="checkbox" data-task-id="${escapeAttribute(task.id)}" data-occurrence-date="${occurrenceDate}" aria-label="Mark ${escapeAttribute(task.title)} done" />
     <span class="task-content">
       <span class="task-title">${escapeHtml(task.title)}</span>
@@ -474,6 +494,7 @@ function handleTaskSubmit(event) {
     assignee: String(els.taskAssignee.value || 'both'),
     kind: String(els.taskType.value || 'task'),
     recurrence: String(els.taskRepeat.value || 'none'),
+    reminder: String(els.taskReminder && els.taskReminder.value || 'day-before'),
     updatedAt: nowIso(),
   };
   const editingTask = editingTaskId ? state.data.tasks.find((task) => task.id === editingTaskId) : null;
@@ -503,6 +524,7 @@ function openEventDialog(options = {}) {
   els.taskAssignee.value = task && task.assignee || 'both';
   els.taskType.value = task && task.kind || 'event';
   els.taskRepeat.value = task && task.recurrence || 'none';
+  if (els.taskReminder) els.taskReminder.value = task && task.reminder || 'day-before';
   updateTimeClearButtons();
   openDialog(els.eventDialog);
   window.setTimeout(() => els.taskTitle.focus(), 30);
@@ -949,6 +971,7 @@ function normalizeTask(task) {
   normalized.id = normalized.id || createId();
   normalized.startTime = normalized.startTime || normalized.time || '';
   normalized.endTime = normalized.endTime || '';
+  normalized.reminder = normalized.reminder || 'day-before';
   delete normalized.time;
   return normalized;
 }

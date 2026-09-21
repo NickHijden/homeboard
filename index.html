@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20260921-1" />
+    <link rel="stylesheet" href="styles.css?v=20260921-2" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -132,8 +132,8 @@
             <label class="field-label" for="taskAssignee">Who?</label>
             <select class="large-input" id="taskAssignee" name="assignee">
               <option value="both">Both of us</option>
-              <option value="me">Me</option>
-              <option value="partner">Partner</option>
+              <option value="me">Nick</option>
+              <option value="partner">Stephany</option>
             </select>
           </div>
           <div class="field-group">
@@ -153,6 +153,12 @@
           <option value="weekly">Every week</option>
           <option value="biweekly">Every 2 weeks</option>
           <option value="monthly">Every month</option>
+        </select>
+
+        <label class="field-label" for="taskReminder">Email reminder <span class="optional">when notifications are connected</span></label>
+        <select class="large-input" id="taskReminder" name="reminder">
+          <option value="day-before">The day before</option>
+          <option value="none">No email reminder</option>
         </select>
 
         <div class="dialog-actions">
@@ -207,6 +213,6 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260918-5" defer></script>
+    <script src="app.js?v=20260921-2" defer></script>
   </body>
 </html>
