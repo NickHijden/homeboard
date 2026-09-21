@@ -4,12 +4,12 @@ The web app stores each event's reminder preference as `day-before` by default. 
 
 ## One-time setup
 
-1. Create a free Resend account and verify a sending domain. Keep the Resend API key private.
+1. Create a free Brevo account and verify one sender email address. Domain authentication is recommended for deliverability, but the sender address must be verified before it can be used. Keep the Brevo API key private.
 2. Deploy `supabase/functions/send-reminders/index.ts` with the Supabase CLI or Dashboard. The root `supabase/config.toml` allows the scheduled request to call the function.
 3. Set these Supabase Edge Function secrets; do not put them in Homeboard or GitHub:
 
-   - `RESEND_API_KEY`
-   - `HOMEBOARD_FROM_EMAIL` (for example `Homeboard <reminders@your-domain.example>`)
+   - `BREVO_API_KEY`
+   - `HOMEBOARD_FROM_EMAIL` (for example `nickyjim@live.nl`)
    - `HOMEBOARD_NICK_EMAILS` (comma-separated Nick addresses)
    - `HOMEBOARD_STEPHANY_EMAILS` (comma-separated Stephany addresses)
    - `HOMEBOARD_CRON_SECRET`

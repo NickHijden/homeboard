@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const TIME_ZONE = Deno.env.get('HOMEBOARD_TIME_ZONE') || 'Europe/Amsterdam';
 const REMINDER_HOUR = Number(Deno.env.get('HOMEBOARD_REMINDER_HOUR') || '9');
 const CRON_SECRET = Deno.env.get('HOMEBOARD_CRON_SECRET') || '';
-const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY') || '';
 const FROM_EMAIL = Deno.env.get('HOMEBOARD_FROM_EMAIL') || '';
 const RECIPIENTS = [
   Deno.env.get('HOMEBOARD_NICK_EMAILS') || '',
@@ -50,7 +50,7 @@ Deno.serve(async (request) => {
   if (localNow.hour !== REMINDER_HOUR || localNow.minute >= 15) {
     return json({ skipped: true, reason: 'Outside reminder window', localNow });
   }
-  if (!RESEND_API_KEY || !FROM_EMAIL || !RECIPIENTS.length) {
+  if (!BREVO_API_KEY || !FROM_EMAIL || !RECIPIENTS.length) {
     return json({ error: 'Email secrets are not configured' }, 500);
   }
 
@@ -71,24 +71,30 @@ Deno.serve(async (request) => {
       if (!isDueOn(task, tomorrow) || data.completions?.[`${task.id}::${tomorrow}`]) continue;
       considered += 1;
 
-      const { data: claim, error: claimError } = await admin
-        .from('homeboard_reminder_log')
-        .upsert({ planner_id: document.id, task_id: task.id, occurrence_date: tomorrow }, { onConflict: 'planner_id,task_id,occurrence_date', ignoreDuplicates: true })
-        .select('planner_id')
-        .maybeSingle();
-      if (claimError) return json({ error: claimError.message }, 500);
-      if (!claim) continue;
-
       const message = createMessage(task, tomorrow);
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: FROM_EMAIL, to: RECIPIENTS, subject: message.subject, text: message.text, html: message.html }),
-      });
-      if (!response.ok) {
-        const detail = await response.text();
-        return json({ error: `Resend failed: ${detail}` }, 502);
+      // Send separately so the four private email addresses are never exposed
+      // to one another in a single message's To/Cc headers.
+      for (const recipient of RECIPIENTS) {
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({
+            sender: { email: FROM_EMAIL, name: 'Homeboard' },
+            to: [{ email: recipient }],
+            subject: message.subject,
+            textContent: message.text,
+            htmlContent: message.html,
+          }),
+        });
+        if (!response.ok) {
+          const detail = await response.text();
+          return json({ error: `Brevo failed: ${detail}` }, 502);
+        }
       }
+      const { error: claimError } = await admin
+        .from('homeboard_reminder_log')
+        .upsert({ planner_id: document.id, task_id: task.id, occurrence_date: tomorrow }, { onConflict: 'planner_id,task_id,occurrence_date', ignoreDuplicates: true });
+      if (claimError) return json({ error: claimError.message }, 500);
       sent += 1;
     }
   }
