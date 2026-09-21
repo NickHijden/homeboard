@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-4';
+const APP_VERSION = '20260921-5';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -176,6 +176,7 @@ function bindEvents() {
 }
 
 function render() {
+  rollOverdueRecurringTasks();
   renderWeekHeader();
   renderWeek();
   renderList('todos', els.todoList, els.todoCount, 'Nothing here yet. Add a small win above.');
@@ -216,17 +217,22 @@ function renderWeek() {
   // Read the same responsive value that paints the horizontal grid lines.
   // Keeping the calculation tied to CSS prevents events from drifting when
   // Safari and the layout media query disagree about the device orientation.
-  const hourHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--calendar-hour-height')) || 46;
-  const compactTimeline = hourHeight < 40;
   const untimedByDay = days.map((day) => openOccurrences.filter((item) => item.dateKey === dateKey(day) && !getTaskTimeBounds(item.task)));
-  // Untimed items sit in a compact overlay at the 6 AM position. They must
-  // not move the clock grid down or make the week taller.
-  const untimedHeight = 0;
+  const cssHourHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--calendar-hour-height')) || 46;
+  const hasUntimedItems = untimedByDay.some((items) => items.length > 0);
+  const compactCssTimeline = cssHourHeight < 40;
+  const untimedRows = Math.max(0, ...untimedByDay.map((items) => Math.ceil(items.length / 2)));
+  const untimedRowHeight = compactCssTimeline ? 52 : 64;
+  const untimedHeight = untimedRows ? untimedRows * untimedRowHeight + 4 : 0;
+  // On the short iPad mini viewport, reserve a little less vertical space per
+  // hour when an any-time lane is present so late timed events remain visible.
+  const hourHeight = compactCssTimeline && hasUntimedItems ? Math.min(cssHourHeight, 18) : cssHourHeight;
+  const compactTimeline = hourHeight < 40;
   const hasTimedItems = openOccurrences.some((item) => Boolean(getTaskTimeBounds(item.task)));
   // Cards have a minimum height, so leave a little room below an event that
   // ends exactly at the last visible hour instead of clipping it.
   const bottomBuffer = hasTimedItems ? (compactTimeline ? 44 : 72) : 0;
-  const timelineHeight = Math.max(1, ((range.endMinutes - range.startMinutes) / 60) * hourHeight + bottomBuffer);
+  const timelineHeight = Math.max(1, untimedHeight + ((range.endMinutes - range.startMinutes) / 60) * hourHeight + bottomBuffer);
   grid.style.setProperty('--timeline-height', `${timelineHeight}px`);
   grid.style.setProperty('--hour-height', `${hourHeight}px`);
 
@@ -292,7 +298,7 @@ function renderWeek() {
       const workingHoursBand = document.createElement('div');
       workingHoursBand.className = 'working-hours-band';
       workingHoursBand.setAttribute('aria-hidden', 'true');
-      workingHoursBand.style.top = `${((9 * 60 - range.startMinutes) / 60) * hourHeight}px`;
+      workingHoursBand.style.top = `${untimedHeight + ((9 * 60 - range.startMinutes) / 60) * hourHeight}px`;
       workingHoursBand.style.height = `${8 * hourHeight}px`;
       timeline.appendChild(workingHoursBand);
     }
@@ -318,7 +324,7 @@ function renderWeek() {
     layoutTimedOccurrences(timed).forEach((placement) => {
       const element = createTaskElement(placement.item);
       const bounds = getTaskTimeBounds(placement.item.task);
-      const top = ((bounds.start - range.startMinutes) / 60) * hourHeight;
+      const top = untimedHeight + ((bounds.start - range.startMinutes) / 60) * hourHeight;
       const height = Math.max(compactTimeline ? 31 : 42, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
       const laneWidth = 100 / placement.laneCount;
       element.classList.add('timed-event');
@@ -350,7 +356,7 @@ function createTaskElement({ task, dateKey: occurrenceDate }) {
     : task.assignee === 'partner'
       ? '<span class="assignee-decoration dress-decoration" aria-hidden="true">👗</span>'
       : '';
-  const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'monthly' ? 'Every month' : '';
+  const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'monthly' ? 'Every month' : task.recurrence === 'quarterly' ? 'Every 3 months' : '';
   const kindLabel = kind === 'expiry' ? 'Use-by' : kind === 'wellness' ? 'Wellness' : kind === 'event' ? 'Event' : 'Task';
   const eventTime = formatEventTime(task);
   item.innerHTML = `
@@ -464,17 +470,62 @@ function getOccurrencesForDay(day) {
 function isDueOn(task, day) {
   const anchor = parseDate(task.date);
   if (!anchor || day < anchor) return false;
-  const recurrence = task.recurrence || 'none';
-  if (recurrence === 'none') return dateKey(anchor) === dateKey(day);
-  if (recurrence === 'weekly' || recurrence === 'biweekly') {
-    const daysSince = differenceInDays(anchor, day);
-    const interval = recurrence === 'weekly' ? 7 : 14;
-    return day.getDay() === anchor.getDay() && daysSince % interval === 0;
-  }
-  if (recurrence === 'monthly') {
-    return day.getDate() === anchor.getDate();
-  }
-  return false;
+  return dateKey(anchor) === dateKey(day);
+}
+
+function isRecurringTask(task) {
+  return ['weekly', 'biweekly', 'monthly', 'quarterly'].indexOf(task && task.recurrence) !== -1;
+}
+
+function rollOverdueRecurringTasks() {
+  const currentWeekStart = startOfWeek(new Date());
+  const currentWeekKey = dateKey(currentWeekStart);
+  let changed = false;
+
+  state.data.tasks.forEach((task) => {
+    if (!isRecurringTask(task)) return;
+    let dueDate = parseDate(task.date);
+    if (!dueDate) return;
+
+    // Move past completed occurrences forward until the next open occurrence
+    // is reached. This also makes older saved data safe after an app update.
+    let guard = 0;
+    while (dateKey(dueDate) < currentWeekKey && isCompleted(task.id, dateKey(dueDate)) && guard < 40) {
+      dueDate = addRecurringDate(dueDate, task.recurrence);
+      task.date = dateKey(dueDate);
+      task.updatedAt = nowIso();
+      changed = true;
+      guard += 1;
+    }
+
+    // An open occurrence moves to the same weekday in the current week once
+    // its original week has ended. Future recurrences are then calculated
+    // from this moved date, so the task truly moves with its schedule.
+    if (dateKey(dueDate) < currentWeekKey && !isCompleted(task.id, dateKey(dueDate))) {
+      const weekdayOffset = (dueDate.getDay() + 6) % 7;
+      const movedDate = addDays(currentWeekStart, weekdayOffset);
+      if (task.date !== dateKey(movedDate)) {
+        task.date = dateKey(movedDate);
+        task.updatedAt = nowIso();
+        changed = true;
+      }
+    }
+  });
+
+  if (changed) persist();
+}
+
+function addRecurringDate(date, recurrence) {
+  if (recurrence === 'weekly') return addDays(date, 7);
+  if (recurrence === 'biweekly') return addDays(date, 14);
+  if (recurrence === 'quarterly') return addMonths(date, 3);
+  return addMonths(date, 1);
+}
+
+function addMonths(date, amount) {
+  const target = new Date(date.getFullYear(), date.getMonth() + amount, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  return new Date(target.getFullYear(), target.getMonth(), Math.min(date.getDate(), lastDay));
 }
 
 function sortOccurrences(left, right) {
@@ -485,9 +536,19 @@ function sortOccurrences(left, right) {
 
 function completeTask(taskId, occurrenceDate, title) {
   const key = completionKey(taskId, occurrenceDate);
+  const task = state.data.tasks.find((entry) => entry.id === taskId);
+  const previousDate = task && task.date;
   state.data.completions[key] = true;
+  if (task && isRecurringTask(task)) {
+    const completedDate = parseDate(occurrenceDate);
+    if (completedDate) {
+      task.date = dateKey(addRecurringDate(completedDate, task.recurrence));
+      task.updatedAt = nowIso();
+    }
+  }
   state.lastUndo = () => {
     delete state.data.completions[key];
+    if (task && previousDate) task.date = previousDate;
     persist();
     render();
   };

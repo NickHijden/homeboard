@@ -156,7 +156,11 @@ function isDueOn(task: Record<string, unknown>, target: string) {
   if (recurrence === 'none') return days === 0;
   if (recurrence === 'weekly') return days % 7 === 0;
   if (recurrence === 'biweekly') return days % 14 === 0;
-  if (recurrence === 'monthly') return targetDate.day === anchor.day;
+  if (recurrence === 'monthly' || recurrence === 'quarterly') {
+    const months = (targetDate.year - anchor.year) * 12 + targetDate.month - anchor.month;
+    const interval = recurrence === 'quarterly' ? 3 : 1;
+    return months >= 0 && months % interval === 0 && targetDate.day === anchor.day;
+  }
   return false;
 }
 

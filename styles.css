@@ -114,8 +114,9 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .language-backdrop { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 0; display: flex; flex-wrap: wrap; align-content: space-around; justify-content: space-around; overflow: hidden; opacity: .14; pointer-events: none; }
 .language-backdrop span { width: 50%; color: #c68e4b; font-size: 34px; line-height: 1; text-align: center; filter: saturate(.8); }
 .dutch-backdrop span { color: #6e91c8; }
-.untimed-lane { position: absolute; top: 0; right: 0; left: 0; z-index: 4; height: auto; padding: 5px; border-bottom: 1px dashed #e4e5ec; background: rgba(255, 255, 255, .7); overflow: visible; }
-.untimed-event { position: relative; display: flex; min-height: 60px; margin: 0 0 4px; padding: 5px 6px; }
+.untimed-lane { position: absolute; top: 0; right: 0; left: 0; z-index: 4; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: stretch; gap: 3px; height: var(--untimed-height); padding: 4px; border-bottom: 1px dashed #e4e5ec; background: rgba(255, 255, 255, .82); overflow: hidden; }
+.untimed-event { position: relative; display: flex; min-height: 0; margin: 0; padding: 5px 6px; }
+.untimed-event:only-child { grid-column: 1 / -1; }
 .timed-event { position: absolute; z-index: 3; display: flex; min-height: 60px; margin: 0; padding: 7px 6px; overflow: hidden; }
 .day-name { margin: 0 0 3px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .day-number { margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 23px; font-weight: 600; letter-spacing: -.06em; }
@@ -301,8 +302,8 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .day-number { font-size: 19px; }
   .today-label { padding: 3px 4px; font-size: 7px; }
   .timeline-lines { background-size: 100% var(--hour-height); }
-  .untimed-lane { padding: 4px; }
-  .untimed-event { min-height: 60px; margin-bottom: 3px; padding: 4px; }
+  .untimed-lane { gap: 2px; padding: 3px; }
+  .untimed-event { margin: 0; padding: 4px; }
   .empty-day { top: calc(var(--untimed-height) + 18px); margin: 12px 1px; font-size: 9px; }
   .empty-day span { margin-bottom: 4px; font-size: 15px; }
   .task-item { gap: 5px; padding: 7px 5px; border-radius: 9px; }
