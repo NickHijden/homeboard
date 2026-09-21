@@ -32,7 +32,6 @@ grant all on public.homeboard_reminder_log to service_role;
 --     headers := jsonb_build_object(
 --       'Content-Type', 'application/json',
 --       'apikey', (select decrypted_secret from vault.decrypted_secrets where name = 'homeboard_publishable_key'),
---       'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'homeboard_publishable_key'),
 --       'x-homeboard-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'homeboard_cron_secret')
 --     ),
 --     body := '{}'::jsonb
