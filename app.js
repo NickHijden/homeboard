@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260918-5';
+const APP_VERSION = '20260921-1';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -214,9 +214,14 @@ function renderWeek() {
   const range = getTimelineRange(openOccurrences);
   const hourHeight = isLandscapeTablet() ? 30 : 46;
   const untimedByDay = days.map((day) => openOccurrences.filter((item) => item.dateKey === dateKey(day) && !getTaskTimeBounds(item.task)));
-  const maxUntimedCount = Math.max.apply(null, untimedByDay.map((items) => items.length).concat([0]));
-  const untimedHeight = maxUntimedCount ? Math.max(68, maxUntimedCount * 68 + 7) : 0;
-  const timelineHeight = Math.max(1, ((range.endMinutes - range.startMinutes) / 60) * hourHeight + untimedHeight);
+  // Untimed items sit in a compact overlay at the 6 AM position. They must
+  // not move the clock grid down or make the week taller.
+  const untimedHeight = 0;
+  const hasTimedItems = openOccurrences.some((item) => Boolean(getTaskTimeBounds(item.task)));
+  // Cards have a minimum height, so leave a little room below an event that
+  // ends exactly at the last visible hour instead of clipping it.
+  const bottomBuffer = hasTimedItems ? 72 : 0;
+  const timelineHeight = Math.max(1, ((range.endMinutes - range.startMinutes) / 60) * hourHeight + bottomBuffer);
   grid.style.setProperty('--timeline-height', `${timelineHeight}px`);
   grid.style.setProperty('--hour-height', `${hourHeight}px`);
 
@@ -232,6 +237,8 @@ function renderWeek() {
       <div>
         <p class="day-name">${shortWeekdayNames[index]}</p>
         <p class="day-number">${day.getDate()}</p>
+        ${index === 5 ? '<span class="language-note spanish-note">En Español</span>' : ''}
+        ${index === 6 ? '<span class="language-note dutch-note">In het Nederlands</span>' : ''}
       </div>
       ${key === todayKey ? '<span class="today-label">Today</span>' : ''}
     `;
@@ -240,13 +247,6 @@ function renderWeek() {
 
   const axis = document.createElement('div');
   axis.className = 'time-axis';
-  if (untimedHeight) {
-    const anyTimeLabel = document.createElement('span');
-    anyTimeLabel.className = 'timeline-label any-time-label';
-    anyTimeLabel.textContent = 'Any time';
-    anyTimeLabel.style.top = '10px';
-    axis.appendChild(anyTimeLabel);
-  }
   for (let hour = range.startHour; hour <= range.endHour; hour += 1) {
     const label = document.createElement('span');
     label.className = 'timeline-label';
@@ -278,7 +278,7 @@ function renderWeek() {
       const workingHoursBand = document.createElement('div');
       workingHoursBand.className = 'working-hours-band';
       workingHoursBand.setAttribute('aria-hidden', 'true');
-      workingHoursBand.style.top = `${untimedHeight + ((9 * 60 - range.startMinutes) / 60) * hourHeight}px`;
+      workingHoursBand.style.top = `${((9 * 60 - range.startMinutes) / 60) * hourHeight}px`;
       workingHoursBand.style.height = `${8 * hourHeight}px`;
       timeline.appendChild(workingHoursBand);
     }
@@ -304,7 +304,7 @@ function renderWeek() {
     layoutTimedOccurrences(timed).forEach((placement) => {
       const element = createTaskElement(placement.item);
       const bounds = getTaskTimeBounds(placement.item.task);
-      const top = untimedHeight + ((bounds.start - range.startMinutes) / 60) * hourHeight;
+      const top = ((bounds.start - range.startMinutes) / 60) * hourHeight;
       const height = Math.max(isLandscapeTablet() ? 31 : 42, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
       const laneWidth = 100 / placement.laneCount;
       element.classList.add('timed-event');
@@ -324,7 +324,7 @@ function renderWeek() {
 
 function createTaskElement({ task, dateKey: occurrenceDate }) {
   const item = document.createElement('article');
-  const kind = task.kind === 'expiry' ? 'expiry' : task.kind === 'event' ? 'event' : 'task';
+  const kind = task.kind === 'expiry' ? 'expiry' : task.kind === 'wellness' ? 'wellness' : task.kind === 'event' ? 'event' : 'task';
   item.className = `task-item ${kind}`;
   item.setAttribute('role', 'button');
   item.setAttribute('tabindex', '0');
@@ -332,7 +332,7 @@ function createTaskElement({ task, dateKey: occurrenceDate }) {
   const assigneeLabel = task.assignee === 'me' ? 'Me' : task.assignee === 'partner' ? 'Partner' : 'Both';
   const assigneeClass = task.assignee === 'me' ? 'assignee-me' : task.assignee === 'partner' ? 'assignee-partner' : 'assignee-both';
   const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'monthly' ? 'Every month' : '';
-  const kindLabel = kind === 'expiry' ? 'Use-by' : kind === 'event' ? 'Event' : 'Task';
+  const kindLabel = kind === 'expiry' ? 'Use-by' : kind === 'wellness' ? 'Wellness' : kind === 'event' ? 'Event' : 'Task';
   const eventTime = formatEventTime(task);
   item.innerHTML = `
     <input class="task-check" type="checkbox" data-task-id="${escapeAttribute(task.id)}" data-occurrence-date="${occurrenceDate}" aria-label="Mark ${escapeAttribute(task.title)} done" />
@@ -1143,10 +1143,19 @@ function formatShortDate(date) { return new Intl.DateTimeFormat(undefined, { day
 function formatLongDate(date) { return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long', year: 'numeric' }).format(date); }
 function formatMonth(date) { return new Intl.DateTimeFormat(undefined, { month: 'long' }).format(date); }
 function parseTimeMinutes(value) {
-  if (!value || !/^\d{2}:\d{2}$/.test(value)) return null;
-  const parts = value.split(':').map(Number);
-  if (parts[0] > 23 || parts[1] > 59) return null;
-  return parts[0] * 60 + parts[1];
+  if (!value) return null;
+  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
+  if (!match) return null;
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (minutes > 59) return null;
+  if (match[3]) {
+    if (hours < 1 || hours > 12) return null;
+    if (match[3].toUpperCase() === 'AM' && hours === 12) hours = 0;
+    if (match[3].toUpperCase() === 'PM' && hours !== 12) hours += 12;
+  }
+  if (hours > 23) return null;
+  return hours * 60 + minutes;
 }
 function formatHourLabel(minutes) {
   const normalized = minutes === 24 * 60 ? 0 : minutes;
@@ -1169,6 +1178,14 @@ function formatEventTime(task) {
   if (end) return `Until ${formatTime(end)}`;
   return '';
 }
-function formatTime(time) { const [hours, minutes] = time.split(':').map(Number); const suffix = hours >= 12 ? 'PM' : 'AM'; const displayHour = hours % 12 || 12; return `${displayHour}:${String(minutes).padStart(2, '0')} ${suffix}`; }
+function formatTime(time) {
+  const minutesSinceMidnight = parseTimeMinutes(time);
+  if (minutesSinceMidnight === null) return String(time || '');
+  const hours = Math.floor(minutesSinceMidnight / 60);
+  const minutes = minutesSinceMidnight % 60;
+  const suffix = hours >= 12 ? 'PM' : 'AM';
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minutes).padStart(2, '0')} ${suffix}`;
+}
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character])); }
 function escapeAttribute(value) { return escapeHtml(value); }
