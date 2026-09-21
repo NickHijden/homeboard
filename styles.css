@@ -101,6 +101,13 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .any-day-items { display: flex; flex: 1 1 auto; min-width: 0; gap: 6px; overflow-x: auto; padding: 2px 1px; }
 .any-day-task { flex: 0 0 205px; min-width: 150px; max-width: 260px; padding: 7px 7px 7px 8px; }
 .any-day-task .task-meta { margin-top: 4px; }
+.topbar .any-day-board { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.topbar .any-day-heading { display: none; }
+.topbar .any-day-rows { gap: 2px; }
+.topbar .any-day-row { gap: 6px; }
+.topbar .any-day-label { flex-basis: 46px; font-size: 9px; }
+.topbar .any-day-items { gap: 4px; padding: 0; }
+.topbar .any-day-task { flex-basis: 150px; min-width: 120px; padding: 5px 6px; border-radius: 8px; }
 
 .week-grid { display: grid; grid-template-columns: 58px repeat(7, minmax(118px, 1fr)); grid-template-rows: auto var(--timeline-height); min-width: 1040px; min-height: 100%; gap: 0 8px; }
 .week-grid-wrapper { height: 100%; overflow: auto; padding-bottom: 4px; }
@@ -119,7 +126,7 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .day-timeline.language-spanish { border-color: #f0dfc3; background: #fffdf8; }
 .day-timeline.language-dutch { border-color: #d8e3f8; background: #fbfdff; }
 .working-hours-band { position: absolute; right: 0; left: 0; z-index: 0; border-top: 1px solid rgba(105, 103, 232, .055); border-bottom: 1px solid rgba(105, 103, 232, .055); background: rgba(105, 103, 232, .045); pointer-events: none; }
-.timeline-lines { position: absolute; top: var(--untimed-height); right: 0; bottom: 0; left: 0; z-index: 1; background-image: linear-gradient(to bottom, rgba(216, 218, 229, .78) 1px, transparent 1px); background-size: 100% var(--hour-height); pointer-events: none; }
+.timeline-lines { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 1; background-image: linear-gradient(to bottom, rgba(216, 218, 229, .78) 1px, transparent 1px); background-size: 100% var(--hour-height); pointer-events: none; }
 .language-backdrop { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 0; display: flex; flex-wrap: wrap; align-content: space-around; justify-content: space-around; overflow: hidden; opacity: .14; pointer-events: none; }
 .language-backdrop span { width: 50%; color: #c68e4b; font-size: 34px; line-height: 1; text-align: center; filter: saturate(.8); }
 .dutch-backdrop span { color: #6e91c8; }
@@ -139,6 +146,8 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 
 .task-item { position: relative; display: flex; gap: 8px; padding: 10px 8px 10px 9px; border: 1px solid #e9e9f2; border-radius: 12px; background: #fff; box-shadow: 0 3px 9px rgba(37, 41, 73, .035); cursor: pointer; transition: transform .16s, box-shadow .16s; }
 .assignee-decoration { position: absolute; top: -8px; right: 5px; z-index: 5; display: block; font-size: 19px; line-height: 1; pointer-events: none; filter: drop-shadow(0 2px 1px rgba(37, 41, 73, .12)); }
+.nick-food-decoration { top: -7px; right: 4px; font-size: 18px; transform: rotate(-8deg); }
+.stephany-monkey-decoration { top: -5px; right: 2px; font-size: 19px; transform: rotate(5deg); transform-origin: top center; }
 .crown-decoration { transform: rotate(12deg); }
 .dress-decoration { top: -4px; right: 3px; font-size: 22px; transform: rotate(7deg); transform-origin: top center; }
 .task-item:hover, .task-item:focus-visible { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(37, 41, 73, .1); outline: none; }
@@ -260,6 +269,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .side-stack { display: flex; flex-direction: row; flex-wrap: wrap; margin-top: 16px; }
   .side-stack .list-card { flex: 1 1 280px; }
   .save-status { grid-column: 1 / -1; }
+  .topbar .any-day-board { order: 3; flex-basis: 100%; }
 }
 
 @media (max-width: 560px) {
@@ -290,6 +300,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   html, body { height: 100%; overflow: hidden; }
   .app-shell { width: calc(100% - 22px); height: 100vh; padding: 16px 0; }
   .topbar { margin-bottom: 12px; }
+  .topbar .any-day-board { order: initial; flex-basis: auto; }
   .topbar-actions { gap: 6px; }
   .topbar-actions .secondary-button { padding: 0 10px; font-size: 11px; }
   .topbar-actions .primary-button { padding: 0 12px; font-size: 11px; }
@@ -310,6 +321,8 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .any-day-task { flex-basis: 145px; min-width: 115px; padding: 4px; border-radius: 7px; }
   .any-day-task .task-title { font-size: 8px; }
   .any-day-task .task-meta { margin-top: 2px; font-size: 7px; }
+  .topbar .any-day-label { flex-basis: 34px; font-size: 7px; }
+  .topbar .any-day-task { flex-basis: 118px; min-width: 100px; padding: 3px; }
   #weekGrid { flex: 1 1 auto; min-height: 0; }
   .week-grid { min-width: 0; width: 100%; gap: 0 4px; grid-template-columns: 42px repeat(7, minmax(0, 1fr)); grid-template-rows: auto var(--timeline-height); }
   .week-grid-wrapper { height: 100%; overflow: auto; }
@@ -338,6 +351,8 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .assignee-chip { gap: 3px; padding: 2px 3px; font-size: 8px; }
   .assignee-dot { width: 5px; height: 5px; }
   .assignee-decoration { top: -6px; right: 3px; font-size: 15px; }
+  .nick-food-decoration { top: -5px; right: 2px; font-size: 14px; }
+  .stephany-monkey-decoration { top: -3px; right: 1px; font-size: 16px; }
   .dress-decoration { top: -3px; right: 1px; font-size: 18px; }
   .language-backdrop span { font-size: 25px; }
   .side-stack { flex-basis: 220px; height: 100%; gap: 10px; overflow: hidden; }
