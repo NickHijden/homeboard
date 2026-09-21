@@ -42,16 +42,28 @@ const corsHeaders = {
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (request.headers.get('x-homeboard-cron-secret') !== CRON_SECRET || !CRON_SECRET) {
+  const isTestRun = request.headers.get('x-homeboard-test-secret') === CRON_SECRET && Boolean(CRON_SECRET);
+  const isScheduledRun = request.headers.get('x-homeboard-cron-secret') === CRON_SECRET && Boolean(CRON_SECRET);
+  if (!isTestRun && !isScheduledRun) {
     return json({ error: 'Unauthorized' }, 401);
   }
 
   const localNow = getLocalParts(new Date());
-  if (localNow.hour !== REMINDER_HOUR || localNow.minute >= 15) {
+  if (!isTestRun && (localNow.hour !== REMINDER_HOUR || localNow.minute >= 15)) {
     return json({ skipped: true, reason: 'Outside reminder window', localNow });
   }
   if (!BREVO_API_KEY || !FROM_EMAIL || !RECIPIENTS.length) {
     return json({ error: 'Email secrets are not configured' }, 500);
+  }
+
+  if (isTestRun) {
+    const testMessage = {
+      subject: 'Homeboard test — your reminders are connected 💌',
+      text: 'Hey Stephany,\n\nThis is a test email from Homeboard. If you received it, tomorrow\'s reminders can reach the household inboxes. Nick loves you. 💛\n\nHomeboard',
+      html: '<div style="font-family:Arial,sans-serif;line-height:1.6;color:#292d38"><p>Hey Stephany,</p><p>This is a test email from Homeboard. If you received it, tomorrow’s reminders can reach the household inboxes.</p><p>Nick loves you. 💛</p><p>Homeboard</p></div>',
+    };
+    for (const recipient of RECIPIENTS) await sendEmail(testMessage, recipient);
+    return json({ testSent: true, recipients: RECIPIENTS.length, timeZone: TIME_ZONE });
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
@@ -74,23 +86,7 @@ Deno.serve(async (request) => {
       const message = createMessage(task, tomorrow);
       // Send separately so the four private email addresses are never exposed
       // to one another in a single message's To/Cc headers.
-      for (const recipient of RECIPIENTS) {
-        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json', accept: 'application/json' },
-          body: JSON.stringify({
-            sender: { email: FROM_EMAIL, name: 'Homeboard' },
-            to: [{ email: recipient }],
-            subject: message.subject,
-            textContent: message.text,
-            htmlContent: message.html,
-          }),
-        });
-        if (!response.ok) {
-          const detail = await response.text();
-          return json({ error: `Brevo failed: ${detail}` }, 502);
-        }
-      }
+      for (const recipient of RECIPIENTS) await sendEmail(message, recipient);
       const { error: claimError } = await admin
         .from('homeboard_reminder_log')
         .upsert({ planner_id: document.id, task_id: task.id, occurrence_date: tomorrow }, { onConflict: 'planner_id,task_id,occurrence_date', ignoreDuplicates: true });
@@ -100,6 +96,24 @@ Deno.serve(async (request) => {
   }
   return json({ sent, considered, date: tomorrow, timeZone: TIME_ZONE });
 });
+
+async function sendEmail(message: { subject: string; text: string; html: string }, recipient: string) {
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      sender: { email: FROM_EMAIL, name: 'Homeboard' },
+      to: [{ email: recipient }],
+      subject: message.subject,
+      textContent: message.text,
+      htmlContent: message.html,
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Brevo failed: ${detail}`);
+  }
+}
 
 function createMessage(task: Record<string, unknown>, date: string) {
   const hash = stringHash(`${String(task.id)}:${date}`);

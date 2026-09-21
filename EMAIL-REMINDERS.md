@@ -20,3 +20,13 @@ The web app stores each event's reminder preference as `day-before` by default. 
 5. Replace the placeholders in the scheduling section of that SQL file, then enable the 15-minute cron job.
 
 The function uses a reminder log so a retry cannot send the same reminder twice. It also skips completed events and events marked “No email reminder”.
+
+## Test delivery
+
+In the Supabase Edge Function tester, send a `POST` request to `send-reminders` with these headers:
+
+- `apikey`: your Supabase publishable key
+- `Authorization`: `Bearer ` followed by your Supabase publishable key
+- `x-homeboard-test-secret`: the same private value as `HOMEBOARD_CRON_SECRET`
+
+Use `{}` as the request body. The response should say `testSent: true`, and each configured address should receive a test email immediately. This test does not create a planner event or a reminder-log entry.
