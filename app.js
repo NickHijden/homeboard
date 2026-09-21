@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-7';
+const APP_VERSION = '20260921-8';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -228,10 +228,15 @@ function renderAnyDayBoard() {
 }
 
 function isAnyDayTaskOpen(task) {
-  if (!isRecurringTask(task)) return !task.anyDayCompleted;
-  const nextDate = parseDate(task.nextAnyDayDate);
-  if (!nextDate) return true;
-  return dateKey(startOfWeek(nextDate)) === dateKey(startOfWeek(new Date()));
+  const viewingWeek = startOfWeek(state.weekStart || new Date());
+  if (!isRecurringTask(task)) {
+    if (task.anyDayCompleted) return false;
+    const taskWeek = startOfWeek(parseDate(task.anyDayDate) || new Date());
+    return dateKey(taskWeek) === dateKey(viewingWeek);
+  }
+
+  const anchor = parseDate(task.nextAnyDayDate) || parseDate(task.anyDayDate) || viewingWeek;
+  return Array.from({ length: 7 }, (_, index) => matchesRecurringDate(anchor, addDays(viewingWeek, index), task.recurrence)).some(Boolean);
 }
 
 function renderWeekHeader() {
@@ -275,7 +280,7 @@ function renderWeek() {
   const hasUntimedItems = untimedByDay.some((items) => items.length > 0);
   const compactCssTimeline = cssHourHeight < 40;
   const untimedRows = Math.max(0, ...untimedByDay.map((items) => Math.ceil(items.length / 2)));
-  const untimedRowHeight = compactCssTimeline ? 52 : 64;
+  const untimedRowHeight = compactCssTimeline ? 44 : 64;
   const untimedHeight = untimedRows ? untimedRows * untimedRowHeight + 4 : 0;
   // On the short iPad mini viewport, reserve a little less vertical space per
   // hour when an any-time lane is present so late timed events remain visible.
@@ -292,7 +297,10 @@ function renderWeek() {
   // Cards have a minimum height, so leave a little room below an event that
   // ends exactly at the last visible hour instead of clipping it.
   const bottomBuffer = hasTimedItems ? (compactTimeline ? 44 : 72) : 0;
-  const timelineHeight = Math.max(1, untimedStart + untimedHeight + ((range.endMinutes - untimedStartMinutes) / 60) * hourHeight + bottomBuffer);
+  const baseTimelineHeight = untimedHeight
+    ? untimedStart + untimedHeight + ((range.endMinutes - untimedStartMinutes) / 60) * hourHeight
+    : ((range.endMinutes - range.startMinutes) / 60) * hourHeight;
+  const timelineHeight = Math.max(1, baseTimelineHeight + bottomBuffer);
   grid.style.setProperty('--timeline-height', `${timelineHeight}px`);
   grid.style.setProperty('--hour-height', `${hourHeight}px`);
   grid.style.setProperty('--untimed-height', `${untimedHeight}px`);
@@ -554,7 +562,25 @@ function isDueOn(task, day) {
   if (task.anyDay) return false;
   const anchor = parseDate(task.date);
   if (!anchor || day < anchor) return false;
-  return dateKey(anchor) === dateKey(day);
+  if (!isRecurringTask(task)) return dateKey(anchor) === dateKey(day);
+  return matchesRecurringDate(anchor, day, task.recurrence);
+}
+
+function matchesRecurringDate(anchor, day, recurrence) {
+  if (!anchor || day < anchor) return false;
+  if (recurrence === 'weekly' || recurrence === 'biweekly') {
+    const interval = recurrence === 'biweekly' ? 14 : 7;
+    return differenceInDays(anchor, day) % interval === 0;
+  }
+  if (recurrence !== 'monthly' && recurrence !== 'quarterly') return false;
+
+  let occurrence = new Date(anchor);
+  let guard = 0;
+  while (dateKey(occurrence) < dateKey(day) && guard < 480) {
+    occurrence = addRecurringDate(occurrence, recurrence);
+    guard += 1;
+  }
+  return dateKey(occurrence) === dateKey(day);
 }
 
 function isRecurringTask(task) {
@@ -573,7 +599,7 @@ function rollOverdueRecurringTasks() {
     // weekday. Advance that date by the configured interval only; otherwise
     // a monthly or biweekly item would incorrectly reappear every week.
     if (task.anyDay) {
-      let dueDate = parseDate(task.nextAnyDayDate) || new Date();
+      let dueDate = parseDate(task.nextAnyDayDate) || parseDate(task.anyDayDate) || new Date();
       if (!task.nextAnyDayDate) {
         task.nextAnyDayDate = dateKey(dueDate);
         task.updatedAt = nowIso();
@@ -686,7 +712,7 @@ function completeAnyDayTask(taskId, title) {
     updatedAt: task.updatedAt,
   };
   if (isRecurringTask(task)) {
-    const completedDate = parseDate(task.nextAnyDayDate) || new Date();
+    const completedDate = parseDate(task.nextAnyDayDate) || parseDate(task.anyDayDate) || new Date();
     task.nextAnyDayDate = dateKey(addRecurringDate(completedDate, task.recurrence));
     delete task.anyDayCompleted;
   } else {
@@ -736,11 +762,19 @@ function handleTaskSubmit(event) {
     updatedAt: nowIso(),
   };
   if (anyDay && recurrence !== 'none') {
-    updatedTask.nextAnyDayDate = (editingTask && editingTask.nextAnyDayDate) || dateKey(new Date());
+    updatedTask.nextAnyDayDate = (editingTask && editingTask.nextAnyDayDate)
+      || (editingTask && editingTask.anyDayDate)
+      || dateKey(state.weekStart);
+  }
+  if (anyDay) {
+    updatedTask.anyDayDate = (editingTask && editingTask.anyDayDate)
+      || (editingTask && editingTask.nextAnyDayDate)
+      || dateKey(state.weekStart);
   }
   if (editingTask) {
     Object.assign(editingTask, updatedTask);
     if (!anyDay || recurrence === 'none') delete editingTask.nextAnyDayDate;
+    if (!anyDay) delete editingTask.anyDayDate;
     if (anyDay) delete editingTask.date;
   } else {
     state.data.tasks.push({ id: createId(), ...updatedTask });
@@ -1225,6 +1259,9 @@ function normalizeTask(task) {
   normalized.startTime = normalized.startTime || normalized.time || '';
   normalized.endTime = normalized.endTime || '';
   normalized.anyDay = Boolean(normalized.anyDay);
+  if (normalized.anyDay) {
+    normalized.anyDayDate = normalized.anyDayDate || normalized.nextAnyDayDate || dateKey(startOfWeek(new Date()));
+  }
   normalized.reminder = normalized.reminder || 'day-before';
   delete normalized.time;
   return normalized;
