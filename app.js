@@ -8,11 +8,39 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-16';
+const APP_VERSION = '20260922-17';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
   'homeboard-data',
+];
+const FOOTBALL_SCHEDULE_VERSION = '20260922-v1';
+const FOOTBALL_SCHEDULE = [
+  { date: '2026-09-26', startTime: '12:00', opponent: "TAC'90 2", home: false },
+  { date: '2026-10-03', startTime: '14:30', opponent: 'Maasdijk 4', home: false },
+  { date: '2026-10-10', startTime: '12:45', opponent: 'SVH 3', home: true },
+  { date: '2026-10-24', startTime: '12:30', opponent: 'Honselersdijk 5', home: false },
+  { date: '2026-10-31', startTime: '12:45', opponent: 'KMD 4', home: true },
+  { date: '2026-11-07', startTime: '12:30', opponent: "FC 's-Gravenzande 7", home: false },
+  { date: '2026-11-14', startTime: '12:45', opponent: 'SV Leidschenveen 3', home: true },
+  { date: '2026-11-21', startTime: '12:00', opponent: 'Wanica Star 4', home: false },
+  { date: '2026-11-28', startTime: '12:45', opponent: "FC 's-Gravenzande 8", home: true },
+  { date: '2026-12-05', startTime: '14:30', opponent: 'Sportclub Monster 6', home: false },
+  { date: '2027-01-16', startTime: '12:45', opponent: "TAC'90 2", home: true },
+  { date: '2027-01-23', startTime: '12:45', opponent: 'VELO 5', home: true },
+  { date: '2027-01-30', startTime: '12:00', opponent: 'RAS 4', home: false },
+  { date: '2027-02-06', startTime: '14:30', opponent: 'SVH 3', home: false },
+  { date: '2027-02-13', startTime: '12:45', opponent: 'Maasdijk 4', home: true },
+  { date: '2027-03-06', startTime: '12:45', opponent: 'Naaldwijk 4', home: true },
+  { date: '2027-03-13', startTime: '14:15', opponent: 'KMD 4', home: false },
+  { date: '2027-03-20', startTime: '12:45', opponent: 'Honselersdijk 5', home: true },
+  { date: '2027-04-03', startTime: '16:00', opponent: 'SV Leidschenveen 3', home: false },
+  { date: '2027-04-10', startTime: '12:45', opponent: "FC 's-Gravenzande 7", home: true },
+  { date: '2027-04-17', startTime: '14:45', opponent: "FC 's-Gravenzande 8", home: false },
+  { date: '2027-04-24', startTime: '12:45', opponent: 'Wanica Star 4', home: true },
+  { date: '2027-05-08', startTime: '14:45', opponent: 'VELO 5', home: false },
+  { date: '2027-05-15', startTime: '12:45', opponent: 'Sportclub Monster 6', home: true },
+  { date: '2027-05-22', startTime: '15:00', opponent: 'Naaldwijk 4', home: false },
 ];
 
 let loadedDataFromStorage = false;
@@ -95,6 +123,7 @@ const els = {
 const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const shortWeekdayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
+if (importFootballSchedule()) persist();
 render();
 bindEvents();
 registerServiceWorker();
@@ -1366,6 +1395,58 @@ function normalizePlannerData(stored) {
     completions: stored.completions && typeof stored.completions === 'object' ? stored.completions : {},
     meta: stored.meta && typeof stored.meta === 'object' ? stored.meta : {},
   };
+}
+
+function importFootballSchedule() {
+  const meta = state.data.meta || (state.data.meta = {});
+  if (meta.footballScheduleVersion === FOOTBALL_SCHEDULE_VERSION) return false;
+  const importedAt = nowIso();
+  let changed = false;
+  FOOTBALL_SCHEDULE.forEach((match) => {
+    const matchKey = `${match.date}|${match.startTime}|${match.opponent}`;
+    const stableId = `football-${match.date}-${match.opponent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+    const existing = state.data.tasks.find((task) => task.id === stableId
+      || task.footballKey === matchKey
+      || (task.date === match.date && task.startTime === match.startTime && /^futbol\b/i.test(task.title || '')));
+    const endTime = formatInputTime(parseTimeMinutes(match.startTime) + 180);
+    const desired = {
+      id: stableId,
+      title: `Futbol @${match.home ? 'home' : 'Away'} · ${match.opponent}`,
+      date: match.date,
+      anyDay: false,
+      startTime: match.startTime,
+      endTime,
+      assignee: 'me',
+      kind: 'event',
+      recurrence: 'none',
+      reminder: 'none',
+      footballKey: matchKey,
+      updatedAt: importedAt,
+    };
+    if (!existing) {
+      state.data.tasks.push(desired);
+      changed = true;
+      return;
+    }
+    const previousId = existing.id;
+    if (previousId !== stableId) {
+      const completions = state.data.completions || {};
+      const prefix = `${previousId}::`;
+      Object.keys(completions).forEach((key) => {
+        if (!key.startsWith(prefix)) return;
+        completions[`${stableId}${key.slice(previousId.length)}`] = completions[key];
+        delete completions[key];
+      });
+    }
+    const differs = Object.keys(desired).some((key) => existing[key] !== desired[key]);
+    Object.assign(existing, desired);
+    if (differs) changed = true;
+  });
+  if (meta.footballScheduleVersion !== FOOTBALL_SCHEDULE_VERSION) {
+    meta.footballScheduleVersion = FOOTBALL_SCHEDULE_VERSION;
+    changed = true;
+  }
+  return changed;
 }
 
 function createStarterData() {
