@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-11';
+const APP_VERSION = '20260921-12';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -389,60 +389,26 @@ function renderWeek() {
     }
 
     const timed = dayOccurrences.filter((item) => Boolean(getTaskTimeBounds(item.task)));
-    const timedPlacements = layoutTimedOccurrences(timed);
-    const timedGroups = [];
-    timedPlacements.forEach((placement) => {
-      if (!timedGroups[placement.groupIndex]) timedGroups[placement.groupIndex] = [];
-      timedGroups[placement.groupIndex].push(placement);
-    });
-    timedGroups.forEach((group, groupIndex) => {
-      const groupStart = Math.min(...group.map((placement) => getTaskTimeBounds(placement.item.task).start));
-      const groupTop = ((groupStart - range.startMinutes) / 60) * hourHeight;
-      const nextGroupStart = timedGroups[groupIndex + 1]
-        ? Math.min(...timedGroups[groupIndex + 1].map((placement) => getTaskTimeBounds(placement.item.task).start))
-        : null;
-      const nextGroupTop = nextGroupStart === null
-        ? timelineHeight
-        : ((nextGroupStart - range.startMinutes) / 60) * hourHeight;
-      const cards = group.map((placement) => {
-        const element = createTaskElement(placement.item);
-        element.classList.add('timed-event');
-        element.style.top = `${groupTop}px`;
-        element.style.left = '3px';
-        element.style.width = 'calc(100% - 6px)';
-        element.style.height = 'auto';
-        if (untimedHeight && getTaskTimeBounds(placement.item.task).start < untimedStartMinutes && getTaskTimeBounds(placement.item.task).end > untimedStartMinutes) {
-          element.style.zIndex = '6';
-        }
-        timeline.appendChild(element);
-        return { placement, element };
-      });
-      const compactMinimum = compactTimeline ? 31 : 42;
-      const fullWidthHeights = cards.map(({ element, placement }) => {
-        const bounds = getTaskTimeBounds(placement.item.task);
-        return Math.max(compactMinimum, ((bounds.end - bounds.start) / 60) * hourHeight - 4, element.scrollHeight + 2);
-      });
-      const stackedHeight = fullWidthHeights.reduce((total, height) => total + height, 0) + Math.max(0, group.length - 1) * 3;
-      const stackFits = group.length > 1 && groupTop + stackedHeight <= nextGroupTop;
-      let stackedOffset = 0;
-      cards.forEach(({ placement, element }, cardIndex) => {
-        const bounds = getTaskTimeBounds(placement.item.task);
-        const minimumHeight = Math.max(compactMinimum, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
-        if (stackFits) {
-          element.style.top = `${groupTop + stackedOffset}px`;
-          element.style.left = '3px';
-          element.style.width = 'calc(100% - 6px)';
-          element.style.height = `${fullWidthHeights[cardIndex]}px`;
-          stackedOffset += fullWidthHeights[cardIndex] + 3;
-        } else {
-          const laneWidth = 100 / placement.laneCount;
-          element.style.top = `${((bounds.start - range.startMinutes) / 60) * hourHeight}px`;
-          element.style.left = `calc(${placement.lane * laneWidth}% + 3px)`;
-          element.style.width = `calc(${laneWidth}% - 6px)`;
-          element.style.height = 'auto';
-          element.style.height = `${Math.max(minimumHeight, element.scrollHeight + 2)}px`;
-        }
-      });
+    // Overlapping events share horizontal lanes. Their individual top
+    // positions still follow their own start times, so a later event starts
+    // lower in its half of the column instead of creating a large vertical
+    // gap underneath the earlier event.
+    layoutTimedOccurrences(timed).forEach((placement) => {
+      const element = createTaskElement(placement.item);
+      const bounds = getTaskTimeBounds(placement.item.task);
+      const top = ((bounds.start - range.startMinutes) / 60) * hourHeight;
+      const minimumHeight = Math.max(compactTimeline ? 31 : 42, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
+      const laneWidth = 100 / placement.laneCount;
+      element.classList.add('timed-event');
+      element.style.top = `${top}px`;
+      element.style.height = 'auto';
+      element.style.left = `calc(${placement.lane * laneWidth}% + 3px)`;
+      element.style.width = `calc(${laneWidth}% - 6px)`;
+      if (untimedHeight && bounds.start < untimedStartMinutes && bounds.end > untimedStartMinutes) {
+        element.style.zIndex = '6';
+      }
+      timeline.appendChild(element);
+      element.style.height = `${Math.max(minimumHeight, element.scrollHeight + 2)}px`;
     });
     grid.appendChild(timeline);
   });
@@ -552,7 +518,7 @@ function layoutTimedOccurrences(occurrences) {
   });
 
   const layout = [];
-  placements.forEach((overlapGroup, groupIndex) => {
+  placements.forEach((overlapGroup) => {
     const laneEnds = [];
     const groupPlacements = [];
     overlapGroup.items.forEach((item) => {
@@ -563,7 +529,7 @@ function layoutTimedOccurrences(occurrences) {
       groupPlacements.push({ item, lane });
     });
     const laneCount = Math.max(1, laneEnds.length);
-    groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount, groupIndex }));
+    groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount }));
   });
   return layout;
 }
