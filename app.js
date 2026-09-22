@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-9';
+const APP_VERSION = '20260921-10';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -278,17 +278,12 @@ function renderWeek() {
   const untimedByDay = days.map((day) => openOccurrences.filter((item) => item.dateKey === dateKey(day) && !getTaskTimeBounds(item.task)));
   const cssHourHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--calendar-hour-height')) || 46;
   const hasUntimedItems = untimedByDay.some((items) => items.length > 0);
-  const compactCssTimeline = cssHourHeight < 40;
-  const untimedRows = Math.max(0, ...untimedByDay.map((items) => Math.ceil(items.length / 2)));
-  const untimedRowHeight = compactCssTimeline ? 44 : 64;
-  const untimedHeight = untimedRows ? untimedRows * untimedRowHeight + 4 : 0;
-  // On the short iPad mini viewport, reserve a little less vertical space per
-  // hour when an any-time lane is present so late timed events remain visible.
-  const hourHeight = compactCssTimeline && hasUntimedItems ? Math.min(cssHourHeight, 18) : cssHourHeight;
-  // Keep any-time tasks below the first 6 AM hour. This lets timed events
-  // keep their real vertical position while still giving untimed work a
-  // compact, clearly separated place in each day.
-  const untimedStartMinutes = 7 * 60;
+  // Keep the actual hour rows unchanged. Any-time tasks are rendered as a
+  // compact overlay inside the 6 AM row instead of adding extra rows above
+  // the timeline. This is especially important on the short iPad viewport.
+  const hourHeight = cssHourHeight;
+  const untimedStartMinutes = 6 * 60;
+  const untimedHeight = hasUntimedItems ? Math.max(16, hourHeight - 2) : 0;
   const untimedStart = untimedHeight
     ? Math.max(0, ((untimedStartMinutes - range.startMinutes) / 60) * hourHeight)
     : 0;
@@ -297,10 +292,7 @@ function renderWeek() {
   // Cards have a minimum height, so leave a little room below an event that
   // ends exactly at the last visible hour instead of clipping it.
   const bottomBuffer = hasTimedItems ? (compactTimeline ? 44 : 72) : 0;
-  const baseTimelineHeight = untimedHeight
-    ? untimedStart + untimedHeight + ((range.endMinutes - untimedStartMinutes) / 60) * hourHeight
-    : ((range.endMinutes - range.startMinutes) / 60) * hourHeight;
-  const timelineHeight = Math.max(1, baseTimelineHeight + bottomBuffer);
+  const timelineHeight = Math.max(1, ((range.endMinutes - range.startMinutes) / 60) * hourHeight + bottomBuffer);
   grid.style.setProperty('--timeline-height', `${timelineHeight}px`);
   grid.style.setProperty('--hour-height', `${hourHeight}px`);
   grid.style.setProperty('--untimed-height', `${untimedHeight}px`);
@@ -333,14 +325,14 @@ function renderWeek() {
     const label = document.createElement('span');
     label.className = 'timeline-label';
     label.textContent = formatHourLabel(hour * 60);
-    const labelShift = untimedHeight && hour * 60 >= untimedStartMinutes ? untimedHeight : 0;
-    label.style.top = `${((hour * 60 - range.startMinutes) / 60) * hourHeight + labelShift - 7}px`;
+    label.style.top = `${((hour * 60 - range.startMinutes) / 60) * hourHeight - 7}px`;
     axis.appendChild(label);
   }
   grid.appendChild(axis);
 
   days.forEach((day, index) => {
     const key = dateKey(day);
+    const untimed = untimedByDay[index];
     const timeline = document.createElement('div');
     const languageClass = index === 5 ? ' language-spanish' : index === 6 ? ' language-dutch' : '';
     timeline.className = `day-timeline${key === todayKey ? ' today' : ''}${languageClass}`;
@@ -351,11 +343,10 @@ function renderWeek() {
       const bounds = timeline.getBoundingClientRect();
       const y = event.clientY - bounds.top;
       let startTime = '';
-      if (untimedHeight && y >= untimedStart && y < untimedStart + untimedHeight) {
+      if (untimed.length && y >= untimedStart && y < untimedStart + untimedHeight) {
         startTime = '';
       } else {
-        const shift = untimedHeight && y >= untimedStart + untimedHeight ? untimedHeight : 0;
-        const clickedMinutes = range.startMinutes + ((y - shift) / hourHeight) * 60;
+        const clickedMinutes = range.startMinutes + (y / hourHeight) * 60;
         const snappedMinutes = Math.max(0, Math.min(24 * 60 - 15, Math.round(clickedMinutes / 15) * 15));
         startTime = formatInputTime(snappedMinutes);
       }
@@ -373,25 +364,16 @@ function renderWeek() {
       const workingHoursBand = document.createElement('div');
       workingHoursBand.className = 'working-hours-band';
       workingHoursBand.setAttribute('aria-hidden', 'true');
-      workingHoursBand.style.top = `${untimedHeight + ((9 * 60 - range.startMinutes) / 60) * hourHeight}px`;
+      workingHoursBand.style.top = `${((9 * 60 - range.startMinutes) / 60) * hourHeight}px`;
       workingHoursBand.style.height = `${8 * hourHeight}px`;
       timeline.appendChild(workingHoursBand);
     }
 
-    const earlyLines = document.createElement('div');
-    earlyLines.className = 'timeline-lines timeline-lines-before';
-    earlyLines.style.top = '0';
-    earlyLines.style.bottom = 'auto';
-    earlyLines.style.height = `${untimedStart}px`;
-    timeline.appendChild(earlyLines);
-
-    const laterLines = document.createElement('div');
-    laterLines.className = 'timeline-lines timeline-lines-after';
-    laterLines.style.top = `${untimedStart + untimedHeight}px`;
-    timeline.appendChild(laterLines);
+    const lines = document.createElement('div');
+    lines.className = 'timeline-lines';
+    timeline.appendChild(lines);
 
     const dayOccurrences = openOccurrences.filter((item) => item.dateKey === key);
-    const untimed = untimedByDay[index];
     if (untimed.length) {
       const untimedLane = document.createElement('div');
       untimedLane.className = 'untimed-lane';
@@ -408,8 +390,7 @@ function renderWeek() {
     layoutTimedOccurrences(timed).forEach((placement) => {
       const element = createTaskElement(placement.item);
       const bounds = getTaskTimeBounds(placement.item.task);
-      const timedLaneShift = untimedHeight && bounds.start >= untimedStartMinutes ? untimedHeight : 0;
-      const top = ((bounds.start - range.startMinutes) / 60) * hourHeight + timedLaneShift;
+      const top = ((bounds.start - range.startMinutes) / 60) * hourHeight;
       const height = Math.max(compactTimeline ? 31 : 42, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
       const laneWidth = 100 / placement.laneCount;
       element.classList.add('timed-event');

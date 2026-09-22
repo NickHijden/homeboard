@@ -107,7 +107,10 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .topbar .any-day-row { gap: 6px; }
 .topbar .any-day-label { flex-basis: 46px; font-size: 9px; }
 .topbar .any-day-items { gap: 4px; padding: 0; }
-.topbar .any-day-task { flex-basis: 150px; min-width: 120px; padding: 5px 6px; border-radius: 8px; }
+.topbar .any-day-task { flex-basis: 150px; min-width: 120px; height: 34px; min-height: 34px; padding: 4px 6px; border-radius: 8px; overflow: hidden; }
+.topbar .any-day-task .task-content { overflow: hidden; }
+.topbar .any-day-task .task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .any-day-task .task-meta { flex-wrap: nowrap; margin-top: 2px; overflow: hidden; white-space: nowrap; }
 
 .week-grid { display: grid; grid-template-columns: 58px repeat(7, minmax(118px, 1fr)); grid-template-rows: auto var(--timeline-height); min-width: 1040px; min-height: 100%; gap: 0 8px; }
 .week-grid-wrapper { height: 100%; overflow: auto; padding-bottom: 4px; }
@@ -300,11 +303,12 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   html, body { height: 100%; overflow: hidden; }
   .app-shell { width: calc(100% - 22px); height: 100vh; padding: 16px 0; }
   .topbar { margin-bottom: 12px; }
+  .app-shell { display: flex; flex-direction: column; }
   .topbar .any-day-board { order: initial; flex-basis: auto; }
   .topbar-actions { gap: 6px; }
   .topbar-actions .secondary-button { padding: 0 10px; font-size: 11px; }
   .topbar-actions .primary-button { padding: 0 12px; font-size: 11px; }
-  .dashboard-grid { height: calc(100vh - 82px); gap: 12px; }
+  .dashboard-grid { flex: 1 1 auto; height: auto; min-height: 0; gap: 12px; }
   .planner-card { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 16px; }
   .planner-toolbar { gap: 10px; }
   .week-title-row { gap: 6px; }
@@ -322,7 +326,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .any-day-task .task-title { font-size: 8px; }
   .any-day-task .task-meta { margin-top: 2px; font-size: 7px; }
   .topbar .any-day-label { flex-basis: 34px; font-size: 7px; }
-  .topbar .any-day-task { flex-basis: 118px; min-width: 100px; padding: 3px; }
+  .topbar .any-day-task { flex-basis: 118px; min-width: 100px; height: 27px; min-height: 27px; padding: 3px; }
   #weekGrid { flex: 1 1 auto; min-height: 0; }
   .week-grid { min-width: 0; width: 100%; gap: 0 4px; grid-template-columns: 42px repeat(7, minmax(0, 1fr)); grid-template-rows: auto var(--timeline-height); }
   .week-grid-wrapper { height: 100%; overflow: auto; }
@@ -338,7 +342,10 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .today-label { padding: 3px 4px; font-size: 7px; }
   .timeline-lines { background-size: 100% var(--hour-height); }
   .untimed-lane { gap: 2px; padding: 3px; }
-  .untimed-event { margin: 0; padding: 4px; }
+  .untimed-event { margin: 0; padding: 1px 2px; border-radius: 5px; }
+  .untimed-event .task-check { width: 11px; height: 11px; margin-top: 0; border-radius: 3px; }
+  .untimed-event .task-title { font-size: 7px; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .untimed-event .task-meta { display: none; }
   .empty-day { top: calc(var(--untimed-height) + 18px); margin: 12px 1px; font-size: 9px; }
   .empty-day span { margin-bottom: 4px; font-size: 15px; }
   .task-item { gap: 5px; padding: 7px 5px; border-radius: 9px; }
@@ -378,7 +385,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
    below the screen. */
 @media (min-width: 760px) and (orientation: landscape) and (max-height: 760px) {
   :root { --calendar-hour-height: 22px; }
-  .dashboard-grid { height: calc(100vh - 70px); }
+  .dashboard-grid { height: auto; }
   .time-axis-header { min-height: 48px; }
   .day-header { min-height: 48px; }
 }
