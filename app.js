@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-15';
+const APP_VERSION = '20260921-16';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -286,6 +286,7 @@ function renderWeek() {
   const untimedHeight = hasUntimedItems
     ? (hourHeight < 40 ? Math.max(34, hourHeight + 14) : Math.max(16, hourHeight - 2))
     : 0;
+  const untimedEndMinutes = untimedStartMinutes + (untimedHeight / hourHeight) * 60;
   const untimedStart = untimedHeight
     ? Math.max(0, ((untimedStartMinutes - range.startMinutes) / 60) * hourHeight)
     : 0;
@@ -432,7 +433,7 @@ function renderWeek() {
       element.style.height = 'auto';
       element.style.left = `calc(${placement.lane * laneWidth}% + 3px)`;
       element.style.width = `calc(${laneWidth}% - 6px)`;
-      if (untimedHeight && bounds.start < untimedStartMinutes && bounds.end > untimedStartMinutes) {
+      if (untimedHeight && bounds.start < untimedEndMinutes && bounds.end > untimedStartMinutes) {
         element.style.zIndex = '6';
       }
       timeline.appendChild(element);
