@@ -299,7 +299,9 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 
 /* Wall-tablet landscape layout: keep the complete week visible without page scrolling. */
 @media (min-width: 760px) and (orientation: landscape) {
-  :root { --calendar-hour-height: 30px; }
+  /* Keep the whole wall-tablet timeline compact even when Safari reports a
+     viewport just above the iPad mini's short-height media-query threshold. */
+  :root { --calendar-hour-height: 20px; }
   html, body { height: 100%; overflow: hidden; }
   .app-shell { width: calc(100% - 22px); height: 100vh; padding: 16px 0; }
   .topbar { margin-bottom: 12px; }
@@ -329,7 +331,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .topbar .any-day-task { flex-basis: 118px; min-width: 100px; height: 27px; min-height: 27px; padding: 3px; }
   #weekGrid { flex: 1 1 auto; min-height: 0; }
   .week-grid { min-width: 0; width: 100%; gap: 0 4px; grid-template-columns: 42px repeat(7, minmax(0, 1fr)); grid-template-rows: auto var(--timeline-height); }
-  .week-grid-wrapper { height: 100%; overflow: auto; }
+  .week-grid-wrapper { height: 100%; min-height: 0; max-height: 100%; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .time-axis-header { min-height: 54px; }
   .time-axis { min-height: var(--timeline-height); }
   .timeline-label { right: 4px; font-size: 8px; line-height: 11px; }
@@ -384,7 +386,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
    6 AM–midnight timeline visible instead of making the final hours scroll
    below the screen. */
 @media (min-width: 760px) and (orientation: landscape) and (max-height: 760px) {
-  :root { --calendar-hour-height: 22px; }
+  :root { --calendar-hour-height: 20px; }
   .dashboard-grid { height: auto; }
   .time-axis-header { min-height: 48px; }
   .day-header { min-height: 48px; }
