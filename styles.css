@@ -342,9 +342,9 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .today-label { padding: 3px 4px; font-size: 7px; }
   .timeline-lines { background-size: 100% var(--hour-height); }
   .untimed-lane { gap: 2px; padding: 3px; }
-  .untimed-event { margin: 0; padding: 1px 2px; border-radius: 5px; }
-  .untimed-event .task-check { width: 11px; height: 11px; margin-top: 0; border-radius: 3px; }
-  .untimed-event .task-title { font-size: 7px; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .untimed-event { margin: 0; padding: 2px 3px; border-radius: 5px; }
+  .untimed-event .task-check { width: 12px; height: 12px; margin-top: 0; border-radius: 3px; }
+  .untimed-event .task-title { font-size: 8px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .untimed-event .task-meta { display: none; }
   .empty-day { top: calc(var(--untimed-height) + 18px); margin: 12px 1px; font-size: 9px; }
   .empty-day span { margin-bottom: 4px; font-size: 15px; }

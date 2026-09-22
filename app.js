@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-10';
+const APP_VERSION = '20260921-11';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -283,7 +283,9 @@ function renderWeek() {
   // the timeline. This is especially important on the short iPad viewport.
   const hourHeight = cssHourHeight;
   const untimedStartMinutes = 6 * 60;
-  const untimedHeight = hasUntimedItems ? Math.max(16, hourHeight - 2) : 0;
+  const untimedHeight = hasUntimedItems
+    ? (hourHeight < 40 ? Math.max(26, hourHeight + 6) : Math.max(16, hourHeight - 2))
+    : 0;
   const untimedStart = untimedHeight
     ? Math.max(0, ((untimedStartMinutes - range.startMinutes) / 60) * hourHeight)
     : 0;
@@ -387,22 +389,60 @@ function renderWeek() {
     }
 
     const timed = dayOccurrences.filter((item) => Boolean(getTaskTimeBounds(item.task)));
-    layoutTimedOccurrences(timed).forEach((placement) => {
-      const element = createTaskElement(placement.item);
-      const bounds = getTaskTimeBounds(placement.item.task);
-      const top = ((bounds.start - range.startMinutes) / 60) * hourHeight;
-      const height = Math.max(compactTimeline ? 31 : 42, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
-      const laneWidth = 100 / placement.laneCount;
-      element.classList.add('timed-event');
-      element.style.top = `${top}px`;
-      element.style.height = 'auto';
-      element.style.left = `calc(${placement.lane * laneWidth}% + 3px)`;
-      element.style.width = `calc(${laneWidth}% - 6px)`;
-      if (untimedHeight && bounds.start < untimedStartMinutes && bounds.end > untimedStartMinutes) {
-        element.style.zIndex = '6';
-      }
-      timeline.appendChild(element);
-      element.style.height = `${Math.max(height, element.scrollHeight + 2)}px`;
+    const timedPlacements = layoutTimedOccurrences(timed);
+    const timedGroups = [];
+    timedPlacements.forEach((placement) => {
+      if (!timedGroups[placement.groupIndex]) timedGroups[placement.groupIndex] = [];
+      timedGroups[placement.groupIndex].push(placement);
+    });
+    timedGroups.forEach((group, groupIndex) => {
+      const groupStart = Math.min(...group.map((placement) => getTaskTimeBounds(placement.item.task).start));
+      const groupTop = ((groupStart - range.startMinutes) / 60) * hourHeight;
+      const nextGroupStart = timedGroups[groupIndex + 1]
+        ? Math.min(...timedGroups[groupIndex + 1].map((placement) => getTaskTimeBounds(placement.item.task).start))
+        : null;
+      const nextGroupTop = nextGroupStart === null
+        ? timelineHeight
+        : ((nextGroupStart - range.startMinutes) / 60) * hourHeight;
+      const cards = group.map((placement) => {
+        const element = createTaskElement(placement.item);
+        element.classList.add('timed-event');
+        element.style.top = `${groupTop}px`;
+        element.style.left = '3px';
+        element.style.width = 'calc(100% - 6px)';
+        element.style.height = 'auto';
+        if (untimedHeight && getTaskTimeBounds(placement.item.task).start < untimedStartMinutes && getTaskTimeBounds(placement.item.task).end > untimedStartMinutes) {
+          element.style.zIndex = '6';
+        }
+        timeline.appendChild(element);
+        return { placement, element };
+      });
+      const compactMinimum = compactTimeline ? 31 : 42;
+      const fullWidthHeights = cards.map(({ element, placement }) => {
+        const bounds = getTaskTimeBounds(placement.item.task);
+        return Math.max(compactMinimum, ((bounds.end - bounds.start) / 60) * hourHeight - 4, element.scrollHeight + 2);
+      });
+      const stackedHeight = fullWidthHeights.reduce((total, height) => total + height, 0) + Math.max(0, group.length - 1) * 3;
+      const stackFits = group.length > 1 && groupTop + stackedHeight <= nextGroupTop;
+      let stackedOffset = 0;
+      cards.forEach(({ placement, element }, cardIndex) => {
+        const bounds = getTaskTimeBounds(placement.item.task);
+        const minimumHeight = Math.max(compactMinimum, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
+        if (stackFits) {
+          element.style.top = `${groupTop + stackedOffset}px`;
+          element.style.left = '3px';
+          element.style.width = 'calc(100% - 6px)';
+          element.style.height = `${fullWidthHeights[cardIndex]}px`;
+          stackedOffset += fullWidthHeights[cardIndex] + 3;
+        } else {
+          const laneWidth = 100 / placement.laneCount;
+          element.style.top = `${((bounds.start - range.startMinutes) / 60) * hourHeight}px`;
+          element.style.left = `calc(${placement.lane * laneWidth}% + 3px)`;
+          element.style.width = `calc(${laneWidth}% - 6px)`;
+          element.style.height = 'auto';
+          element.style.height = `${Math.max(minimumHeight, element.scrollHeight + 2)}px`;
+        }
+      });
     });
     grid.appendChild(timeline);
   });
@@ -512,7 +552,7 @@ function layoutTimedOccurrences(occurrences) {
   });
 
   const layout = [];
-  placements.forEach((overlapGroup) => {
+  placements.forEach((overlapGroup, groupIndex) => {
     const laneEnds = [];
     const groupPlacements = [];
     overlapGroup.items.forEach((item) => {
@@ -523,7 +563,7 @@ function layoutTimedOccurrences(occurrences) {
       groupPlacements.push({ item, lane });
     });
     const laneCount = Math.max(1, laneEnds.length);
-    groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount }));
+    groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount, groupIndex }));
   });
   return layout;
 }
@@ -812,18 +852,33 @@ function updateTimeClearButtons() {
 
 function deleteEditingEvent() {
   if (!editingTaskId) return;
-  const task = state.data.tasks.find((entry) => entry.id === editingTaskId);
+  const taskIndex = state.data.tasks.findIndex((entry) => entry.id === editingTaskId);
+  const task = taskIndex >= 0 ? state.data.tasks[taskIndex] : null;
   if (!task) return;
   if (!window.confirm(`Delete “${task.title}”?`)) return;
+  const deletedTask = JSON.parse(JSON.stringify(task));
+  const deletedCompletions = {};
+  Object.keys(state.data.completions || {}).forEach((key) => {
+    if (key.indexOf(`${task.id}::`) === 0) deletedCompletions[key] = state.data.completions[key];
+  });
   markDeleted('tasks', task.id);
   state.data.tasks = state.data.tasks.filter((entry) => entry.id !== task.id);
   Object.keys(state.data.completions || {}).forEach((key) => {
     if (key.indexOf(`${task.id}::`) === 0) delete state.data.completions[key];
   });
+  state.lastUndo = () => {
+    state.data.tasks.splice(Math.min(taskIndex, state.data.tasks.length), 0, deletedTask);
+    Object.assign(state.data.completions, deletedCompletions);
+    clearDeletedMark('tasks', deletedTask.id);
+    deletedTask.updatedAt = nowIso();
+    persist();
+    render();
+    showToast(`“${deletedTask.title}” restored`);
+  };
   persist();
   closeDialog(els.eventDialog);
   render();
-  showToast('Event deleted');
+  showToast('Event deleted', 'Undo');
 }
 
 function handleListClick(event) {
@@ -838,8 +893,22 @@ function handleListClick(event) {
     item.updatedAt = nowIso();
   }
   if (target.dataset.listAction === 'delete') {
+    const itemIndex = state.data[listName].findIndex((entry) => entry.id === itemId);
+    const deletedItem = JSON.parse(JSON.stringify(item));
     markDeleted(listName, itemId);
     state.data[listName] = state.data[listName].filter((entry) => entry.id !== itemId);
+    state.lastUndo = () => {
+      state.data[listName].splice(Math.min(itemIndex, state.data[listName].length), 0, deletedItem);
+      clearDeletedMark(listName, deletedItem.id);
+      deletedItem.updatedAt = nowIso();
+      persist();
+      render();
+      showToast(`“${deletedItem.title}” restored`);
+    };
+    persist();
+    render();
+    showToast('Item deleted', 'Undo');
+    return;
   }
   persist();
   render();
@@ -868,12 +937,25 @@ function renderList(listName, container, countElement, emptyMessage) {
 
 function clearCompleted(listName) {
   const before = state.data[listName].length;
-  state.data[listName].filter((item) => item.completed).forEach((item) => markDeleted(listName, item.id));
+  const deletedItems = state.data[listName]
+    .map((item, index) => ({ item: JSON.parse(JSON.stringify(item)), index }))
+    .filter(({ item }) => item.completed);
+  deletedItems.forEach(({ item }) => markDeleted(listName, item.id));
   state.data[listName] = state.data[listName].filter((item) => !item.completed);
   if (state.data[listName].length !== before) {
+    state.lastUndo = () => {
+      deletedItems.forEach(({ item, index }) => {
+        state.data[listName].splice(Math.min(index, state.data[listName].length), 0, item);
+        clearDeletedMark(listName, item.id);
+        item.updatedAt = nowIso();
+      });
+      persist();
+      render();
+      showToast('Completed items restored');
+    };
     persist();
     render();
-    showToast('Completed items cleared');
+    showToast('Completed items cleared', 'Undo');
   }
 }
 
@@ -1314,6 +1396,12 @@ function markDeleted(listName, itemId) {
   state.data.meta.deleted = state.data.meta.deleted || { tasks: {}, todos: {}, groceries: {} };
   state.data.meta.deleted[listName] = state.data.meta.deleted[listName] || {};
   state.data.meta.deleted[listName][itemId] = Date.now();
+}
+
+function clearDeletedMark(listName, itemId) {
+  const deleted = state.data.meta && state.data.meta.deleted && state.data.meta.deleted[listName];
+  if (!deleted) return;
+  delete deleted[itemId];
 }
 
 function queueCloudSync() {
