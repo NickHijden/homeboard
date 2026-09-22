@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260921-14';
+const APP_VERSION = '20260921-15';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -284,17 +284,40 @@ function renderWeek() {
   const hourHeight = cssHourHeight;
   const untimedStartMinutes = 6 * 60;
   const untimedHeight = hasUntimedItems
-    ? (hourHeight < 40 ? Math.max(26, hourHeight + 6) : Math.max(16, hourHeight - 2))
+    ? (hourHeight < 40 ? Math.max(34, hourHeight + 14) : Math.max(16, hourHeight - 2))
     : 0;
   const untimedStart = untimedHeight
     ? Math.max(0, ((untimedStartMinutes - range.startMinutes) / 60) * hourHeight)
     : 0;
   const compactTimeline = hourHeight < 40;
+  const timedByDay = days.map((day) => openOccurrences
+    .filter((item) => item.dateKey === dateKey(day))
+    .filter((item) => Boolean(getTaskTimeBounds(item.task))));
+  const timedLayoutsByDay = timedByDay.map((timed) => layoutTimedOccurrences(timed));
   const hasTimedItems = openOccurrences.some((item) => Boolean(getTaskTimeBounds(item.task)));
   // Cards have a minimum height, so leave a little room below an event that
   // ends exactly at the last visible hour instead of clipping it.
-  const bottomBuffer = hasTimedItems ? (compactTimeline ? 44 : 72) : 0;
-  const timelineHeight = Math.max(1, ((range.endMinutes - range.startMinutes) / 60) * hourHeight + bottomBuffer);
+  const baseTimelineHeight = ((range.endMinutes - range.startMinutes) / 60) * hourHeight;
+  const compactClusterCardHeight = 30;
+  const stackBottom = timedLayoutsByDay.reduce((latest, placements) => {
+    const groups = new Map();
+    placements.forEach((placement) => {
+      if (placement.stackGroupId === null) return;
+      if (!groups.has(placement.stackGroupId)) groups.set(placement.stackGroupId, []);
+      groups.get(placement.stackGroupId).push(placement);
+    });
+    groups.forEach((group) => {
+      const groupStart = Math.min(...group.map((placement) => getTaskTimeBounds(placement.item.task).start));
+      const clusterBottom = ((groupStart - range.startMinutes) / 60) * hourHeight
+        + group.length * compactClusterCardHeight
+        + Math.max(0, group.length - 1);
+      latest = Math.max(latest, clusterBottom);
+    });
+    return latest;
+  }, 0);
+  const stackExtraBuffer = compactTimeline ? Math.max(0, stackBottom - baseTimelineHeight + 8) : 0;
+  const bottomBuffer = hasTimedItems ? (compactTimeline ? 44 + stackExtraBuffer : 72) : 0;
+  const timelineHeight = Math.max(1, baseTimelineHeight + bottomBuffer);
   grid.style.setProperty('--timeline-height', `${timelineHeight}px`);
   grid.style.setProperty('--hour-height', `${hourHeight}px`);
   grid.style.setProperty('--untimed-height', `${untimedHeight}px`);
@@ -375,7 +398,6 @@ function renderWeek() {
     lines.className = 'timeline-lines';
     timeline.appendChild(lines);
 
-    const dayOccurrences = openOccurrences.filter((item) => item.dateKey === key);
     if (untimed.length) {
       const untimedLane = document.createElement('div');
       untimedLane.className = 'untimed-lane';
@@ -388,12 +410,18 @@ function renderWeek() {
       timeline.appendChild(untimedLane);
     }
 
-    const timed = dayOccurrences.filter((item) => Boolean(getTaskTimeBounds(item.task)));
-    // Overlapping events share horizontal lanes. Their individual top
-    // positions still follow their own start times, so a later event starts
-    // lower in its half of the column instead of creating a large vertical
-    // gap underneath the earlier event.
-    layoutTimedOccurrences(timed).forEach((placement) => {
+    const timedPlacements = timedLayoutsByDay[index];
+    // Overlapping events normally share horizontal lanes. Dense groups that
+    // start in the same hour (or contain three or more items) are rendered as
+    // a readable full-width stack instead of shrinking every card too far.
+    const stackGroups = new Map();
+    timedPlacements.forEach((placement) => {
+      if (placement.stackGroupId === null) return;
+      if (!stackGroups.has(placement.stackGroupId)) stackGroups.set(placement.stackGroupId, []);
+      stackGroups.get(placement.stackGroupId).push(placement);
+    });
+    const renderedStackGroups = new Set();
+    const renderSidePlacement = (placement) => {
       const element = createTaskElement(placement.item);
       const bounds = getTaskTimeBounds(placement.item.task);
       const top = ((bounds.start - range.startMinutes) / 60) * hourHeight;
@@ -409,6 +437,27 @@ function renderWeek() {
       }
       timeline.appendChild(element);
       element.style.height = `${Math.max(minimumHeight, element.scrollHeight + 2)}px`;
+    };
+    timedPlacements.forEach((placement) => {
+      if (placement.stackGroupId === null) {
+        renderSidePlacement(placement);
+        return;
+      }
+      if (renderedStackGroups.has(placement.stackGroupId)) return;
+      renderedStackGroups.add(placement.stackGroupId);
+      const group = stackGroups.get(placement.stackGroupId);
+      const groupStart = Math.min(...group.map((entry) => getTaskTimeBounds(entry.item.task).start));
+      const cluster = document.createElement('div');
+      cluster.className = 'timed-cluster';
+      cluster.style.top = `${((groupStart - range.startMinutes) / 60) * hourHeight}px`;
+      cluster.style.left = '3px';
+      cluster.style.width = 'calc(100% - 6px)';
+      group.forEach((entry) => {
+        const element = createTaskElement(entry.item);
+        element.classList.add('timed-cluster-item');
+        cluster.appendChild(element);
+      });
+      timeline.appendChild(cluster);
     });
     grid.appendChild(timeline);
   });
@@ -529,7 +578,9 @@ function layoutTimedOccurrences(occurrences) {
       groupPlacements.push({ item, lane });
     });
     const laneCount = Math.max(1, laneEnds.length);
-    groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount }));
+    const startHours = overlapGroup.items.map((item) => Math.floor(getTaskTimeBounds(item.task).start / 60));
+    const stackGroupId = overlapGroup.items.length >= 3 || new Set(startHours).size === 1 ? placements.indexOf(overlapGroup) : null;
+    groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount, stackGroupId }));
   });
   return layout;
 }
