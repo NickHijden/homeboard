@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260923-19';
+const APP_VERSION = '20260923-20';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -1047,9 +1047,10 @@ function handleTaskSubmit(event) {
   const startTime = String(els.eventStart && els.eventStart.value || '');
   const endTime = String(els.eventEnd && els.eventEnd.value || '');
   const recurrence = String(els.taskRepeat.value || 'none');
+  const volunteering = isVolunteeringTask(title);
   const editingTask = editingTaskId ? state.data.tasks.find((task) => task.id === editingTaskId) : null;
   if (!title || (!anyDay && !date)) return;
-  if (startTime && endTime && endTime < startTime) {
+  if (!volunteering && startTime && endTime && endTime < startTime) {
     showToast('End time must be after start time');
     return;
   }
@@ -1057,8 +1058,8 @@ function handleTaskSubmit(event) {
     title,
     date,
     anyDay,
-    startTime,
-    endTime,
+    startTime: volunteering ? '14:00' : startTime,
+    endTime: volunteering ? '17:00' : endTime,
     assignee: String(els.taskAssignee.value || 'both'),
     kind: String(els.taskType.value || 'task'),
     recurrence,
@@ -1625,8 +1626,10 @@ function normalizeTask(task) {
   normalized.id = normalized.id || createId();
   normalized.startTime = normalized.startTime || normalized.time || '';
   normalized.endTime = normalized.endTime || '';
-  if (isVolunteeringTask(normalized.title) && normalized.startTime !== '14:00') {
+  if (isVolunteeringTask(normalized.title)
+    && (normalized.startTime !== '14:00' || normalized.endTime !== '17:00')) {
     normalized.startTime = '14:00';
+    normalized.endTime = '17:00';
     normalized.updatedAt = nowIso();
   }
   normalized.anyDay = Boolean(normalized.anyDay);
@@ -1775,17 +1778,17 @@ function importFootballSchedule() {
 function applyDataMigrations() {
   let changed = importFootballSchedule();
   const meta = state.data.meta || (state.data.meta = {});
-  if (!meta.volunteeringStartFixVersion) {
-    const task = state.data.tasks.find((entry) => isVolunteeringTask(entry.title));
-    if (task) {
-      if (task.startTime !== '14:00') {
-        task.startTime = '14:00';
-        task.updatedAt = nowIso();
-        changed = true;
-      }
-      meta.volunteeringStartFixVersion = '20260923-v1';
+  if (meta.volunteeringStartFixVersion !== '20260923-v2') {
+    state.data.tasks.forEach((task) => {
+      if (!isVolunteeringTask(task.title)) return;
+      if (task.startTime === '14:00' && task.endTime === '17:00') return;
+      task.startTime = '14:00';
+      task.endTime = '17:00';
+      task.updatedAt = nowIso();
       changed = true;
-    }
+    });
+    meta.volunteeringStartFixVersion = '20260923-v2';
+    changed = true;
   }
   return changed;
 }
