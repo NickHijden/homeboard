@@ -2,6 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const TIME_ZONE = Deno.env.get('HOMEBOARD_TIME_ZONE') || 'Europe/Amsterdam';
 const REMINDER_HOUR = Number(Deno.env.get('HOMEBOARD_REMINDER_HOUR') || '9');
+const OVERDUE_REMINDER_HOUR = Number(Deno.env.get('HOMEBOARD_OVERDUE_REMINDER_HOUR') || String(REMINDER_HOUR));
 const CRON_SECRET = Deno.env.get('HOMEBOARD_CRON_SECRET') || '';
 const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY') || '';
 const FROM_EMAIL = Deno.env.get('HOMEBOARD_FROM_EMAIL') || '';
@@ -49,7 +50,10 @@ Deno.serve(async (request) => {
   }
 
   const localNow = getLocalParts(new Date());
-  if (!isTestRun && (localNow.hour !== REMINDER_HOUR || localNow.minute >= 15)) {
+  const isMondayOverdueRun = localNow.weekday === 'Mon'
+    && localNow.hour === OVERDUE_REMINDER_HOUR
+    && localNow.minute < 15;
+  if (!isTestRun && !isMondayOverdueRun && (localNow.hour !== REMINDER_HOUR || localNow.minute >= 15)) {
     return json({ skipped: true, reason: 'Outside reminder window', localNow });
   }
   if (!BREVO_API_KEY || !FROM_EMAIL || !RECIPIENTS.length) {
@@ -74,6 +78,9 @@ Deno.serve(async (request) => {
   const { data: documents, error } = await admin.from('planner_documents').select('id,data');
   if (error) return json({ error: error.message }, 500);
 
+  const overdueSent = isMondayOverdueRun
+    ? await sendOverdueAnyDayReminders(admin, documents || [], localNow.date)
+    : 0;
   let sent = 0;
   let considered = 0;
   for (const document of documents || []) {
@@ -94,8 +101,87 @@ Deno.serve(async (request) => {
       sent += 1;
     }
   }
-  return json({ sent, considered, date: tomorrow, timeZone: TIME_ZONE });
+  return json({ sent, considered, overdueSent, date: tomorrow, timeZone: TIME_ZONE });
 });
+
+async function sendOverdueAnyDayReminders(admin: ReturnType<typeof createClient>, documents: Array<Record<string, unknown>>, monday: string) {
+  const previousSunday = addDays(monday, -1);
+  const previousMonday = addDays(monday, -7);
+  let sentTasks = 0;
+  for (const document of documents) {
+    const data = (document.data || {}) as Record<string, unknown>;
+    const tasks = Array.isArray(data.tasks) ? data.tasks as Array<Record<string, unknown>> : [];
+    const candidates = tasks.map((task) => {
+      const occurrenceDate = getOverdueAnyDayDate(task, previousMonday, previousSunday);
+      return occurrenceDate ? { task, occurrenceDate } : null;
+    }).filter((candidate): candidate is { task: Record<string, unknown>; occurrenceDate: string } => Boolean(candidate));
+    if (!candidates.length) continue;
+
+    const taskIds = candidates.map(({ task }) => String(task.id));
+    const occurrenceDates = candidates.map(({ occurrenceDate }) => occurrenceDate);
+    const { data: claims, error: claimError } = await admin
+      .from('homeboard_reminder_log')
+      .select('task_id, occurrence_date')
+      .eq('planner_id', String(document.id))
+      .in('task_id', taskIds)
+      .in('occurrence_date', occurrenceDates);
+    if (claimError) throw new Error(claimError.message);
+    const claimed = new Set((claims || []).map((claim) => `${claim.task_id}::${claim.occurrence_date}`));
+    const unclaimed = candidates.filter(({ task, occurrenceDate }) => !claimed.has(`${task.id}::${occurrenceDate}`));
+    if (!unclaimed.length) continue;
+
+    const message = createOverdueMessage(unclaimed.map(({ task }) => task), previousMonday, previousSunday);
+    for (const recipient of RECIPIENTS) await sendEmail(message, recipient);
+    for (const { task, occurrenceDate } of unclaimed) {
+      const { error: logError } = await admin
+        .from('homeboard_reminder_log')
+        .upsert({ planner_id: String(document.id), task_id: String(task.id), occurrence_date: occurrenceDate }, { onConflict: 'planner_id,task_id,occurrence_date', ignoreDuplicates: true });
+      if (logError) throw new Error(logError.message);
+      sentTasks += 1;
+    }
+  }
+  return sentTasks;
+}
+
+function getOverdueAnyDayDate(task: Record<string, unknown>, previousMonday: string, previousSunday: string) {
+  if (!task.anyDay || task.anyDayCompleted || task.reminder === 'none') return null;
+  if (!['weekly', 'biweekly', 'monthly', 'quarterly'].includes(String(task.recurrence || ''))) return null;
+  const lastMissed = String(task.lastMissedAnyDayDate || '');
+  if (lastMissed >= previousMonday && lastMissed <= previousSunday) return lastMissed;
+  const nextDue = String(task.nextAnyDayDate || task.anyDayDate || '');
+  if (nextDue && nextDue <= previousSunday) return nextDue;
+  return null;
+}
+
+function createOverdueMessage(tasks: Array<Record<string, unknown>>, previousMonday: string, previousSunday: string) {
+  const rows = tasks.map((task) => {
+    const title = String(task.title || 'Household task');
+    const assignee = task.assignee === 'me' ? 'Nick' : task.assignee === 'partner' ? 'Stephany' : 'Both';
+    return { title, assignee };
+  });
+  const subject = `Homeboard — ${rows.length} unfinished task${rows.length === 1 ? '' : 's'} from last week`;
+  const text = [
+    'Hey Nick and Stephany,',
+    '',
+    `These flexible recurring tasks were still open at the end of ${previousSunday} (the week of ${previousMonday}):`,
+    ...rows.map((row) => `• ${row.title} — ${row.assignee}`),
+    '',
+    'A fresh week is a lovely chance to finish them together. Stephany, you are wonderful, and Nick is cheering you both on. 💛',
+    '',
+    'Love,',
+    'Homeboard',
+  ].join('\n');
+  const htmlRows = rows.map((row) => `<li><strong>${escapeHtml(row.title)}</strong> <span style="color:#858b97">— ${escapeHtml(row.assignee)}</span></li>`).join('');
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#292d38;max-width:620px">
+      <p>Hey Nick and Stephany,</p>
+      <p>These flexible recurring tasks were still open at the end of <strong>${escapeHtml(previousSunday)}</strong>:</p>
+      <ul>${htmlRows}</ul>
+      <p>A fresh week is a lovely chance to finish them together. Stephany, you are wonderful, and Nick is cheering you both on. 💛</p>
+      <p>Love,<br />Homeboard</p>
+    </div>`;
+  return { subject, text, html };
+}
 
 async function sendEmail(message: { subject: string; text: string; html: string }, recipient: string) {
   const response = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -197,7 +283,8 @@ function formatTime(time: { hour: number; minute: number }) {
 function getLocalParts(value: Date) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(value);
   const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
-  return { date: `${get('year')}-${String(get('month')).padStart(2, '0')}-${String(get('day')).padStart(2, '0')}`, year: get('year'), month: get('month'), day: get('day'), hour: get('hour') % 24, minute: get('minute') };
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: TIME_ZONE, weekday: 'short' }).format(value);
+  return { date: `${get('year')}-${String(get('month')).padStart(2, '0')}-${String(get('day')).padStart(2, '0')}`, year: get('year'), month: get('month'), day: get('day'), hour: get('hour') % 24, minute: get('minute'), weekday };
 }
 
 function addDays(value: string, amount: number) {

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20260922-17" />
+    <link rel="stylesheet" href="styles.css?v=20260923-18" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -47,6 +47,7 @@
 
           <div class="week-summary" id="weekSummary" aria-live="polite"></div>
           <div id="weekGrid" aria-live="polite"></div>
+          <section class="completed-any-day-board" id="completedAnyDayBoard" aria-label="Completed flexible tasks"></section>
         </section>
 
         <aside class="side-stack" aria-label="Household lists">
@@ -170,8 +171,31 @@
 
         <div class="dialog-actions">
           <button class="danger-button" id="deleteEventButton" type="button" hidden>Delete event</button>
+          <button class="complete-button" id="completeEventButton" type="button" hidden>✓ Done</button>
           <button class="secondary-button" id="cancelDialogButton" type="button">Cancel</button>
           <button class="primary-button" id="saveEventButton" type="submit">Save event</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="day-settings-dialog" id="daySettingsDialog" aria-labelledby="daySettingsTitle">
+      <form class="task-form" id="daySettingsForm">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">DAY STYLE</p>
+            <h2 id="daySettingsTitle">Customize day</h2>
+          </div>
+          <button class="close-button" id="closeDaySettingsButton" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="settings-copy">Add a small label and a gentle background tint. Click any weekday header again whenever you want to change it.</p>
+        <label class="field-label" for="daySettingLabel">Label <span class="optional">optional</span></label>
+        <input class="large-input" id="daySettingLabel" type="text" maxlength="40" placeholder="e.g. Date night" autocomplete="off" />
+        <label class="field-label" for="daySettingColor">Background color</label>
+        <input class="color-input" id="daySettingColor" type="color" value="#eeeefe" />
+        <div class="dialog-actions">
+          <button class="subtle-button" id="clearDaySettingButton" type="button">Clear style</button>
+          <button class="secondary-button" id="closeDaySettingsButtonAlt" type="button">Cancel</button>
+          <button class="primary-button" type="submit">Save style</button>
         </div>
       </form>
     </dialog>
@@ -220,6 +244,6 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260922-17" defer></script>
+    <script src="app.js?v=20260923-18" defer></script>
   </body>
 </html>

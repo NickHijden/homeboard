@@ -1,6 +1,6 @@
 # Homeboard email reminders
 
-The web app stores each event's reminder preference as `day-before` by default. Existing events without this field also use the day-before default. The reminder function checks tomorrow's open events at 09:00 Europe/Amsterdam and sends one friendly email per event to the configured household addresses.
+The web app stores each event's reminder preference as `day-before` by default. Existing events without this field also use the day-before default. The reminder function checks tomorrow's open events at 09:00 Europe/Amsterdam and sends one friendly email per event to the configured household addresses. On Monday at the same hour it also sends one summary email containing unfinished recurring no-fixed-day tasks from the previous week.
 
 ## One-time setup
 
@@ -19,7 +19,7 @@ The web app stores each event's reminder preference as `day-before` by default. 
 4. Run the table section in `supabase/reminders-setup.sql`.
 5. Replace the placeholders in the scheduling section of that SQL file, then enable the 15-minute cron job.
 
-The function uses a reminder log so a retry cannot send the same reminder twice. It also skips completed events and events marked “No email reminder”.
+The function uses a reminder log so a retry cannot send the same reminder twice. It also skips completed events, events marked “No email reminder”, and recurring no-fixed-day tasks that are not overdue.
 
 ## Test delivery
 

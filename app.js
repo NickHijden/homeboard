@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260922-17';
+const APP_VERSION = '20260923-18';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -45,6 +45,8 @@ const FOOTBALL_SCHEDULE = [
 
 let loadedDataFromStorage = false;
 let editingTaskId = null;
+let editingOccurrenceDate = null;
+let editingDayIndex = null;
 
 const state = {
   data: loadData(),
@@ -68,6 +70,7 @@ const els = {
   weekSummary: document.querySelector('#weekSummary'),
   anyDayBoard: document.querySelector('#anyDayBoard'),
   weekGrid: document.querySelector('#weekGrid'),
+  completedAnyDayBoard: document.querySelector('#completedAnyDayBoard'),
   addEventButton: document.querySelector('#addEventButton') || document.querySelector('#addTaskButton'),
   previousWeekButton: document.querySelector('#previousWeekButton'),
   nextWeekButton: document.querySelector('#nextWeekButton'),
@@ -78,6 +81,7 @@ const els = {
   closeDialogButton: document.querySelector('#closeDialogButton'),
   cancelDialogButton: document.querySelector('#cancelDialogButton'),
   deleteEventButton: document.querySelector('#deleteEventButton'),
+  completeEventButton: document.querySelector('#completeEventButton'),
   saveEventButton: document.querySelector('#saveEventButton'),
   taskTitle: document.querySelector('#taskTitle'),
   taskDate: document.querySelector('#taskDate'),
@@ -118,12 +122,20 @@ const els = {
   syncNowButton: document.querySelector('#syncNowButton'),
   syncSignOutButton: document.querySelector('#syncSignOutButton'),
   syncStatus: document.querySelector('#syncStatus'),
+  daySettingsDialog: document.querySelector('#daySettingsDialog'),
+  daySettingsForm: document.querySelector('#daySettingsForm'),
+  daySettingsTitle: document.querySelector('#daySettingsTitle'),
+  daySettingLabel: document.querySelector('#daySettingLabel'),
+  daySettingColor: document.querySelector('#daySettingColor'),
+  clearDaySettingButton: document.querySelector('#clearDaySettingButton'),
+  closeDaySettingsButton: document.querySelector('#closeDaySettingsButton'),
+  closeDaySettingsButtonAlt: document.querySelector('#closeDaySettingsButtonAlt'),
 };
 
 const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const shortWeekdayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
-if (importFootballSchedule()) persist();
+if (applyDataMigrations()) persist();
 render();
 bindEvents();
 registerServiceWorker();
@@ -146,6 +158,7 @@ function bindEvents() {
   els.closeDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
   els.cancelDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
   if (els.deleteEventButton) els.deleteEventButton.addEventListener('click', deleteEditingEvent);
+  if (els.completeEventButton) els.completeEventButton.addEventListener('click', completeEditingEvent);
   if (els.clearEventStartButton) els.clearEventStartButton.addEventListener('click', () => clearTimeInput(els.eventStart));
   if (els.clearEventEndButton) els.clearEventEndButton.addEventListener('click', () => clearTimeInput(els.eventEnd));
   if (els.eventStart) {
@@ -157,6 +170,13 @@ function bindEvents() {
     els.eventEnd.addEventListener('change', updateTimeClearButtons);
   }
   els.eventDialog.addEventListener('click', closeDialogOnBackdrop);
+  if (els.daySettingsForm) els.daySettingsForm.addEventListener('submit', saveDaySettings);
+  if (els.closeDaySettingsButton) els.closeDaySettingsButton.addEventListener('click', () => closeDialog(els.daySettingsDialog));
+  if (els.closeDaySettingsButtonAlt) els.closeDaySettingsButtonAlt.addEventListener('click', () => closeDialog(els.daySettingsDialog));
+  if (els.clearDaySettingButton) els.clearDaySettingButton.addEventListener('click', clearDaySettings);
+  if (els.daySettingsDialog) els.daySettingsDialog.addEventListener('click', (event) => {
+    if (event.target === els.daySettingsDialog) closeDialog(els.daySettingsDialog);
+  });
 
   els.todoForm.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -209,9 +229,10 @@ function bindEvents() {
 
 function render() {
   rollOverdueRecurringTasks();
-  renderWeekHeader();
+renderWeekHeader();
   renderAnyDayBoard();
   renderWeek();
+  renderCompletedAnyDayBoard();
   renderList('todos', els.todoList, els.todoCount, 'Nothing here yet. Add a small win above.');
   renderList('groceries', els.groceryList, els.groceryCount, 'Your shopping list is clear.');
 }
@@ -256,6 +277,30 @@ function renderAnyDayBoard() {
   });
 }
 
+function renderCompletedAnyDayBoard() {
+  if (!els.completedAnyDayBoard) return;
+  const days = Array.from({ length: 7 }, (_, index) => addDays(state.weekStart, index));
+  const history = Array.isArray(state.data.anyDayCompletions) ? state.data.anyDayCompletions : [];
+  const rows = [
+    { key: 'me', label: 'Nick' },
+    { key: 'partner', label: 'Stephany' },
+  ];
+  els.completedAnyDayBoard.hidden = false;
+  els.completedAnyDayBoard.innerHTML = rows.map((row) => `
+    <div class="completed-any-day-row completed-any-day-row-${row.key}">
+      <span class="completed-any-day-label">${row.label}</span>
+      ${days.map((day) => {
+        const dayHistory = history.filter((entry) => entry.completedDate === dateKey(day)
+          && (entry.assignee === row.key || entry.assignee === 'both'));
+        return `<div class="completed-any-day-cell">${dayHistory.map((entry) => `
+          <span class="completed-any-day-item" title="Completed ${escapeAttribute(entry.title)}">
+            <span class="completed-any-day-check" aria-hidden="true">✓</span>${escapeHtml(entry.title)}
+          </span>`).join('')}</div>`;
+      }).join('')}
+    </div>
+  `).join('');
+}
+
 function isAnyDayTaskOpen(task) {
   const viewingWeek = startOfWeek(state.weekStart || new Date());
   if (!isRecurringTask(task)) {
@@ -279,6 +324,57 @@ function renderWeekHeader() {
   els.todayButton.disabled = viewingCurrentWeek;
   els.todayButton.style.opacity = viewingCurrentWeek ? '.55' : '1';
   els.todayButton.setAttribute('aria-label', viewingCurrentWeek ? `Today is ${today}` : 'Jump to today');
+}
+
+function getDaySetting(index) {
+  const settings = state.data.daySettings || {};
+  return settings[index] || settings[String(index)] || { label: '', color: '' };
+}
+
+function openDaySettings(index) {
+  if (!els.daySettingsDialog || !els.daySettingsForm) return;
+  editingDayIndex = index;
+  const setting = getDaySetting(index);
+  if (els.daySettingsTitle) els.daySettingsTitle.textContent = `Customize ${weekdayNames[index]}`;
+  if (els.daySettingLabel) els.daySettingLabel.value = setting.label || '';
+  if (els.daySettingColor) els.daySettingColor.value = setting.color || '#eeeefe';
+  openDialog(els.daySettingsDialog);
+  window.setTimeout(() => els.daySettingLabel && els.daySettingLabel.focus(), 30);
+}
+
+function saveDaySettings(event) {
+  event.preventDefault();
+  if (editingDayIndex === null) return;
+  const dayName = weekdayNames[editingDayIndex];
+  state.data.daySettings = state.data.daySettings || {};
+  const label = String(els.daySettingLabel && els.daySettingLabel.value || '').trim();
+  const color = String(els.daySettingColor && els.daySettingColor.value || '').trim();
+  state.data.daySettings[editingDayIndex] = { label, color, updatedAt: nowIso() };
+  persist();
+  closeDialog(els.daySettingsDialog);
+  render();
+  showToast(`${dayName} style saved`);
+}
+
+function clearDaySettings() {
+  if (editingDayIndex === null) return;
+  const dayName = weekdayNames[editingDayIndex];
+  state.data.daySettings = state.data.daySettings || {};
+  delete state.data.daySettings[editingDayIndex];
+  persist();
+  closeDialog(els.daySettingsDialog);
+  render();
+  showToast(`${dayName} style cleared`);
+}
+
+function hexToRgba(hex, alpha) {
+  const match = String(hex || '').match(/^#([0-9a-f]{6})$/i);
+  if (!match) return '';
+  const value = parseInt(match[1], 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function renderWeek() {
@@ -360,14 +456,29 @@ function renderWeek() {
   days.forEach((day, index) => {
     const key = dateKey(day);
     const header = document.createElement('header');
-    const languageClass = index === 5 ? ' language-spanish' : index === 6 ? ' language-dutch' : '';
+    const daySetting = getDaySetting(index);
+    const languageClass = !daySetting.label && index === 5 ? ' language-spanish' : !daySetting.label && index === 6 ? ' language-dutch' : '';
     header.className = `day-header${key === todayKey ? ' today' : ''}${languageClass}`;
+    header.tabIndex = 0;
+    header.setAttribute('role', 'button');
+    header.setAttribute('aria-label', `Customize ${weekdayNames[index]}`);
+    header.title = `Customize ${weekdayNames[index]}`;
+    if (daySetting.color) header.style.backgroundColor = hexToRgba(daySetting.color, .13);
+    header.addEventListener('click', () => openDaySettings(index));
+    header.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openDaySettings(index);
+    });
+    const dayNote = daySetting.label
+      ? `<span class="language-note custom-day-note">${escapeHtml(daySetting.label)}</span>`
+      : index === 5 ? '<span class="language-note spanish-note">En Español</span>'
+        : index === 6 ? '<span class="language-note dutch-note">In het Nederlands</span>' : '';
     header.innerHTML = `
       <div>
         <p class="day-name">${shortWeekdayNames[index]}</p>
         <p class="day-number">${day.getDate()}</p>
-        ${index === 5 ? '<span class="language-note spanish-note">En Español</span>' : ''}
-        ${index === 6 ? '<span class="language-note dutch-note">In het Nederlands</span>' : ''}
+        ${dayNote}
       </div>
       ${key === todayKey ? '<span class="today-label">Today</span>' : ''}
     `;
@@ -389,8 +500,10 @@ function renderWeek() {
     const key = dateKey(day);
     const untimed = untimedByDay[index];
     const timeline = document.createElement('div');
-    const languageClass = index === 5 ? ' language-spanish' : index === 6 ? ' language-dutch' : '';
+    const daySetting = getDaySetting(index);
+    const languageClass = !daySetting.label && index === 5 ? ' language-spanish' : !daySetting.label && index === 6 ? ' language-dutch' : '';
     timeline.className = `day-timeline${key === todayKey ? ' today' : ''}${languageClass}`;
+    if (daySetting.color) timeline.style.backgroundColor = hexToRgba(daySetting.color, .06);
     timeline.style.setProperty('--untimed-height', `${untimedHeight}px`);
     timeline.style.setProperty('--untimed-start', `${untimedStart}px`);
     timeline.addEventListener('click', (event) => {
@@ -535,7 +648,7 @@ function createTaskElement({ task, dateKey: occurrenceDate, onComplete }) {
     if (event.target.closest('.task-check')) return;
     event.preventDefault();
     event.stopPropagation();
-    openEventDialog({ task, date: task.date || occurrenceDate });
+    openEventDialog({ task, date: occurrenceDate === 'any-day' ? 'any-day' : occurrenceDate || task.date });
   };
   item.addEventListener('click', openTask);
   item.addEventListener('keydown', (event) => {
@@ -675,6 +788,7 @@ function rollOverdueRecurringTasks() {
       }
       let guard = 0;
       while (dateKey(dueDate) < currentWeekKey && guard < 40) {
+        task.lastMissedAnyDayDate = dateKey(dueDate);
         dueDate = addRecurringDate(dueDate, task.recurrence);
         task.nextAnyDayDate = dateKey(dueDate);
         task.updatedAt = nowIso();
@@ -774,15 +888,18 @@ function completeTask(taskId, occurrenceDate, title) {
 function completeAnyDayTask(taskId, title) {
   const task = state.data.tasks.find((entry) => entry.id === taskId);
   if (!task) return;
+  const completion = recordAnyDayCompletion(task, dateKey(new Date()));
   const previous = {
     anyDayCompleted: task.anyDayCompleted,
     nextAnyDayDate: task.nextAnyDayDate,
+    lastMissedAnyDayDate: task.lastMissedAnyDayDate,
     updatedAt: task.updatedAt,
   };
   if (isRecurringTask(task)) {
     const completedDate = parseDate(task.nextAnyDayDate) || parseDate(task.anyDayDate) || new Date();
     task.nextAnyDayDate = dateKey(addRecurringDate(completedDate, task.recurrence));
     delete task.anyDayCompleted;
+    delete task.lastMissedAnyDayDate;
   } else {
     task.anyDayCompleted = true;
   }
@@ -792,13 +909,31 @@ function completeAnyDayTask(taskId, title) {
     else task.anyDayCompleted = previous.anyDayCompleted;
     if (previous.nextAnyDayDate === undefined) delete task.nextAnyDayDate;
     else task.nextAnyDayDate = previous.nextAnyDayDate;
+    if (previous.lastMissedAnyDayDate === undefined) delete task.lastMissedAnyDayDate;
+    else task.lastMissedAnyDayDate = previous.lastMissedAnyDayDate;
     task.updatedAt = previous.updatedAt;
+    state.data.anyDayCompletions = (state.data.anyDayCompletions || []).filter((entry) => entry.id !== completion.id);
     persist();
     render();
   };
   persist();
   render();
   showToast(`“${title}” marked done`, 'Undo');
+}
+
+function recordAnyDayCompletion(task, completedDate) {
+  const entry = {
+    id: createId(),
+    taskId: task.id,
+    title: task.title,
+    assignee: task.assignee || 'both',
+    completedDate,
+    completedAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  state.data.anyDayCompletions = state.data.anyDayCompletions || [];
+  state.data.anyDayCompletions.push(entry);
+  return entry;
 }
 
 function handleTaskSubmit(event) {
@@ -857,10 +992,12 @@ function handleTaskSubmit(event) {
 function openEventDialog(options = {}) {
   const task = options.task || null;
   editingTaskId = task ? task.id : null;
+  editingOccurrenceDate = options.date || (task && task.date) || null;
   els.taskForm.reset();
   if (els.dialogTitle) els.dialogTitle.textContent = task ? 'Edit event' : 'Add an event';
   if (els.saveEventButton) els.saveEventButton.textContent = task ? 'Save changes' : 'Save event';
   if (els.deleteEventButton) els.deleteEventButton.hidden = !task;
+  if (els.completeEventButton) els.completeEventButton.hidden = !task;
   els.taskTitle.value = task ? task.title || '' : '';
   els.taskAnyDay.checked = Boolean(task && task.anyDay);
   els.taskDate.value = task && task.anyDay ? '' : options.date || (task && task.date) || dateKey(state.weekStart);
@@ -874,6 +1011,21 @@ function openEventDialog(options = {}) {
   updateTimeClearButtons();
   openDialog(els.eventDialog);
   window.setTimeout(() => els.taskTitle.focus(), 30);
+}
+
+function completeEditingEvent() {
+  const task = editingTaskId ? state.data.tasks.find((entry) => entry.id === editingTaskId) : null;
+  if (!task) return;
+  const occurrenceDate = editingOccurrenceDate && editingOccurrenceDate !== 'any-day'
+    ? editingOccurrenceDate
+    : task.date;
+  closeDialog(els.eventDialog);
+  if (task.anyDay) {
+    completeAnyDayTask(task.id, task.title);
+    return;
+  }
+  if (!occurrenceDate) return;
+  completeTask(task.id, occurrenceDate, task.title);
 }
 
 function updateAnyDayField() {
@@ -1051,6 +1203,8 @@ function importBackup(event) {
         todos: imported.todos.map(normalizeListItem),
         groceries: imported.groceries.map(normalizeListItem),
         completions: imported.completions || {},
+        anyDayCompletions: Array.isArray(imported.anyDayCompletions) ? imported.anyDayCompletions.map(normalizeAnyDayCompletion) : [],
+        daySettings: normalizeDaySettings(imported.daySettings),
       };
       persist();
       render();
@@ -1300,6 +1454,8 @@ function mergePlannerData(local, remote) {
     todos: mergeItems(local.todos, remote.todos, deleted.todos),
     groceries: mergeItems(local.groceries, remote.groceries, deleted.groceries),
     completions: Object.assign({}, remote.completions || {}, local.completions || {}),
+    anyDayCompletions: mergeItems(local.anyDayCompletions || [], remote.anyDayCompletions || [], {}),
+    daySettings: mergeDaySettings(local.daySettings, remote.daySettings),
     meta: { demo: false, deleted },
   };
 }
@@ -1368,6 +1524,10 @@ function normalizeTask(task) {
   normalized.id = normalized.id || createId();
   normalized.startTime = normalized.startTime || normalized.time || '';
   normalized.endTime = normalized.endTime || '';
+  if (isVolunteeringTask(normalized.title) && normalized.startTime !== '14:00') {
+    normalized.startTime = '14:00';
+    normalized.updatedAt = nowIso();
+  }
   normalized.anyDay = Boolean(normalized.anyDay);
   if (normalized.anyDay) {
     normalized.anyDayDate = normalized.anyDayDate || normalized.nextAnyDayDate || dateKey(startOfWeek(new Date()));
@@ -1393,8 +1553,50 @@ function normalizePlannerData(stored) {
     todos: stored.todos.map(normalizeListItem),
     groceries: stored.groceries.map(normalizeListItem),
     completions: stored.completions && typeof stored.completions === 'object' ? stored.completions : {},
+    anyDayCompletions: Array.isArray(stored.anyDayCompletions) ? stored.anyDayCompletions.map(normalizeAnyDayCompletion) : [],
+    daySettings: normalizeDaySettings(stored.daySettings),
     meta: stored.meta && typeof stored.meta === 'object' ? stored.meta : {},
   };
+}
+
+function normalizeAnyDayCompletion(entry) {
+  const normalized = {};
+  Object.keys(entry || {}).forEach((key) => { normalized[key] = entry[key]; });
+  normalized.id = normalized.id || createId();
+  normalized.title = String(normalized.title || '').trim();
+  normalized.assignee = ['me', 'partner', 'both'].indexOf(normalized.assignee) !== -1 ? normalized.assignee : 'both';
+  normalized.completedDate = String(normalized.completedDate || '');
+  normalized.updatedAt = normalized.updatedAt || normalized.completedAt || nowIso();
+  return normalized;
+}
+
+function normalizeDaySettings(settings) {
+  const normalized = {};
+  for (let index = 0; index < 7; index += 1) {
+    const setting = settings && settings[index] || settings && settings[String(index)];
+    if (!setting || (!setting.label && !setting.color)) continue;
+    normalized[index] = {
+      label: String(setting.label || '').trim().slice(0, 40),
+      color: /^#[0-9a-f]{6}$/i.test(String(setting.color || '')) ? String(setting.color) : '',
+      updatedAt: setting.updatedAt || nowIso(),
+    };
+  }
+  return normalized;
+}
+
+function mergeDaySettings(local, remote) {
+  const merged = {};
+  for (let index = 0; index < 7; index += 1) {
+    const localSetting = local && (local[index] || local[String(index)]);
+    const remoteSetting = remote && (remote[index] || remote[String(index)]);
+    if (!localSetting && !remoteSetting) continue;
+    if (!localSetting) merged[index] = remoteSetting;
+    else if (!remoteSetting) merged[index] = localSetting;
+    else merged[index] = (Date.parse(localSetting.updatedAt || '') || 0) >= (Date.parse(remoteSetting.updatedAt || '') || 0)
+      ? localSetting
+      : remoteSetting;
+  }
+  return merged;
 }
 
 function importFootballSchedule() {
@@ -1449,6 +1651,28 @@ function importFootballSchedule() {
   return changed;
 }
 
+function applyDataMigrations() {
+  let changed = importFootballSchedule();
+  const meta = state.data.meta || (state.data.meta = {});
+  if (!meta.volunteeringStartFixVersion) {
+    const task = state.data.tasks.find((entry) => isVolunteeringTask(entry.title));
+    if (task) {
+      if (task.startTime !== '14:00') {
+        task.startTime = '14:00';
+        task.updatedAt = nowIso();
+        changed = true;
+      }
+      meta.volunteeringStartFixVersion = '20260923-v1';
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function isVolunteeringTask(title) {
+  return /^volunt(?:e)?ering\b/i.test(String(title || '').trim());
+}
+
 function createStarterData() {
   const today = new Date();
   const weekStart = startOfWeek(today);
@@ -1468,6 +1692,8 @@ function createStarterData() {
       { id: createId(), title: 'Dishwasher tablets', completed: false },
     ],
     completions: {},
+    anyDayCompletions: [],
+    daySettings: {},
     meta: { demo: true },
   };
 }
@@ -1608,7 +1834,11 @@ function closeDialog(dialog) {
   } else {
     dialog.removeAttribute('open');
   }
-  if (dialog === els.eventDialog) editingTaskId = null;
+  if (dialog === els.eventDialog) {
+    editingTaskId = null;
+    editingOccurrenceDate = null;
+  }
+  if (dialog === els.daySettingsDialog) editingDayIndex = null;
   document.body.classList.remove('modal-open');
 }
 

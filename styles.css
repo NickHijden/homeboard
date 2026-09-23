@@ -101,6 +101,12 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .any-day-items { display: flex; flex: 1 1 auto; min-width: 0; gap: 6px; overflow-x: auto; padding: 2px 1px; }
 .any-day-task { flex: 0 0 205px; min-width: 150px; max-width: 260px; padding: 7px 7px 7px 8px; }
 .any-day-task .task-meta { margin-top: 4px; }
+.completed-any-day-board { display: grid; flex: 0 0 auto; gap: 2px; margin-top: 6px; padding: 2px 0 1px; grid-template-columns: 58px repeat(7, minmax(0, 1fr)); }
+.completed-any-day-row { display: contents; }
+.completed-any-day-label { display: flex; align-items: flex-start; padding-top: 2px; color: var(--muted); font-size: 9px; font-weight: 800; }
+.completed-any-day-cell { display: flex; min-width: 0; min-height: 16px; flex-direction: column; gap: 1px; }
+.completed-any-day-item { display: block; overflow: hidden; color: #20242c; font-size: 8px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.completed-any-day-check { margin-right: 2px; color: var(--mint); font-size: 9px; font-weight: 800; }
 .topbar .any-day-board { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .topbar .any-day-heading { display: none; }
 .topbar .any-day-rows { gap: 2px; }
@@ -118,7 +124,8 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .time-axis-header { min-height: 68px; border-bottom: 1px solid var(--line); }
 .day-column { flex: 1 1 0; min-height: 532px; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fcfcfe; overflow: hidden; }
 .day-column.today { border-color: #cbcaff; box-shadow: inset 0 3px 0 var(--violet); }
-.day-header { display: flex; align-items: flex-start; justify-content: space-between; min-height: 68px; padding: 15px 13px 11px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.72); }
+.day-header { display: flex; align-items: flex-start; justify-content: space-between; min-height: 68px; padding: 15px 13px 11px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.72); cursor: pointer; }
+.day-header:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
 .day-header.today { border-color: #cbcaff; box-shadow: inset 0 3px 0 var(--violet); }
 .day-header.language-spanish { background: #fffaf2; }
 .day-header.language-dutch { background: #f3f7ff; }
@@ -144,6 +151,7 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .language-note { display: inline-flex; max-width: 100%; margin-top: 5px; padding: 3px 5px; border-radius: 6px; font-size: 8px; font-weight: 700; line-height: 1.15; white-space: nowrap; }
 .spanish-note { background: #fff0dc; color: #bd7d36; }
 .dutch-note { background: #e7efff; color: #5f77aa; }
+.custom-day-note { background: var(--violet-soft); color: var(--violet-dark); }
 .today-label { padding: 4px 6px; border-radius: 6px; background: var(--violet-soft); color: var(--violet); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .day-body { display: flex; flex-direction: column; gap: 8px; padding: 11px 9px; }
 .empty-day { position: absolute; top: calc(var(--untimed-height) + 25px); right: 0; left: 0; margin: 16px 3px; color: #b4b8c4; font-size: 11px; line-height: 1.5; text-align: center; }
@@ -210,6 +218,9 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .list-row-text { flex: 1; min-width: 0; color: #4b4f59; font-size: 12px; line-height: 1.3; }
 .list-row.done .list-row-text { color: #b2b5bf; text-decoration: line-through; }
 .delete-row { flex: 0 0 auto; padding: 5px; border: 0; background: transparent; color: #c7c9d1; font-size: 16px; line-height: 1; opacity: 0; }
+.grocery-card .list-check { width: 24px; height: 24px; }
+.grocery-card .delete-row { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 9px; background: #fff0f0; color: #c75c63; font-size: 20px; opacity: 1; }
+.grocery-card .delete-row:hover, .grocery-card .delete-row:focus { background: #ffe0e2; color: #b84851; opacity: 1; }
 .list-row:hover .delete-row, .delete-row:focus { opacity: 1; }
 .delete-row:hover { color: #e17279; }
 .empty-list { padding: 8px 2px 10px; color: #b3b6c0; font-size: 11px; }
@@ -242,6 +253,10 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 6px; }
 .dialog-actions .danger-button { margin-right: auto; }
+.complete-button { min-height: 43px; padding: 0 15px; border: 0; border-radius: 12px; background: var(--mint-soft); color: #278b6e; font-weight: 700; }
+.complete-button:hover { background: #d5f1e7; }
+.color-input { width: 100%; height: 43px; margin-bottom: 17px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: #fcfcfe; cursor: pointer; }
+.day-settings-dialog { width: 390px; }
 .settings-copy { margin: -8px 0 21px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 9px; }
 .file-button { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
@@ -343,6 +358,11 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .language-note { max-width: 72px; padding: 2px 3px; font-size: 7px; white-space: normal; }
   .day-name { font-size: 9px; letter-spacing: .05em; }
   .day-number { font-size: 19px; }
+  .completed-any-day-board { grid-template-columns: 42px repeat(7, minmax(0, 1fr)); gap: 1px 4px; margin-top: 4px; padding-top: 1px; }
+  .completed-any-day-label { padding-top: 1px; font-size: 7px; }
+  .completed-any-day-cell { min-height: 13px; }
+  .completed-any-day-item { font-size: 7px; line-height: 1.1; }
+  .completed-any-day-check { margin-right: 1px; font-size: 7px; }
   .today-label { padding: 3px 4px; font-size: 7px; }
   .timeline-lines { background-size: 100% var(--hour-height); }
   .untimed-lane { gap: 2px; padding: 3px; }
@@ -387,6 +407,8 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .list-row-text { font-size: 10px; }
   .list-check { width: 14px; height: 14px; }
   .delete-row { font-size: 13px; }
+  .grocery-card .list-check { width: 20px; height: 20px; }
+  .grocery-card .delete-row { width: 28px; height: 28px; font-size: 17px; opacity: 1; }
   .list-card-footer { min-height: 18px; margin-top: 2px; }
   .subtle-button { padding: 4px 0; font-size: 9px; }
   .save-status { font-size: 9px; }
