@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260923-25';
+const APP_VERSION = '20260923-26';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -382,7 +382,7 @@ function getTaskOverviewSchedule(task) {
 
 function getTaskOverviewStartWeek(task) {
   if (!isRecurringTask(task)) return '';
-  const anchor = parseDate(task.recurrenceStartDate || task.date || task.nextAnyDayDate || task.anyDayDate);
+  const anchor = parseDate(task.recurrenceStartWeek || task.recurrenceStartDate || task.date || task.nextAnyDayDate || task.anyDayDate);
   return anchor ? `Starts week of ${formatShortDate(startOfWeek(anchor))}` : '';
 }
 
@@ -974,7 +974,7 @@ function isDueOn(task, day) {
   // Keep the original recurrence anchor separate from the next visible
   // occurrence. This means a task can be completed today without losing its
   // future weekly, biweekly, monthly, or quarterly occurrences.
-  const anchor = parseDate(isRecurringTask(task) ? (task.recurrenceStartDate || task.date) : task.date);
+  const anchor = getRecurringAnchorDate(task);
   if (!anchor || day < anchor) return false;
   if (!isRecurringTask(task)) return dateKey(anchor) === dateKey(day);
   return matchesRecurringDate(anchor, day, task.recurrence);
@@ -999,6 +999,20 @@ function matchesRecurringDate(anchor, day, recurrence) {
 
 function isRecurringTask(task) {
   return ['weekly', 'biweekly', 'monthly', 'quarterly'].indexOf(task && task.recurrence) !== -1;
+}
+
+function getRecurringAnchorDate(task) {
+  if (!isRecurringTask(task)) return parseDate(task && task.date);
+  const explicitAnchor = parseDate(task.recurrenceStartDate);
+  if (explicitAnchor) return explicitAnchor;
+  const startWeek = parseDate(task.recurrenceStartWeek);
+  if (startWeek) {
+    if (task.anyDay) return startOfWeek(startWeek);
+    const taskDate = parseDate(task.date);
+    const weekdayOffset = taskDate ? (taskDate.getDay() + 6) % 7 : 0;
+    return addDays(startOfWeek(startWeek), weekdayOffset);
+  }
+  return parseDate(task.date || task.nextAnyDayDate || task.anyDayDate);
 }
 
 function rollOverdueRecurringTasks() {
@@ -1205,7 +1219,10 @@ function handleTaskSubmit(event) {
     reminder: String(els.taskReminder && els.taskReminder.value || 'day-before'),
     updatedAt: nowIso(),
   };
-  if (recurrence !== 'none') updatedTask.recurrenceStartDate = firstRecurrenceDate;
+  if (recurrence !== 'none') {
+    updatedTask.recurrenceStartWeek = dateKey(startOfWeek(startWeekDate));
+    updatedTask.recurrenceStartDate = firstRecurrenceDate;
+  }
   if (anyDay && recurrence !== 'none') {
     updatedTask.nextAnyDayDate = firstRecurrenceDate || dateKey(startOfWeek(state.weekStart));
   }
@@ -1218,7 +1235,10 @@ function handleTaskSubmit(event) {
     Object.assign(editingTask, updatedTask);
     if (!anyDay || recurrence === 'none') delete editingTask.nextAnyDayDate;
     if (!anyDay) delete editingTask.anyDayDate;
-    if (recurrence === 'none') delete editingTask.recurrenceStartDate;
+    if (recurrence === 'none') {
+      delete editingTask.recurrenceStartWeek;
+      delete editingTask.recurrenceStartDate;
+    }
     if (anyDay) delete editingTask.date;
   } else {
     state.data.tasks.push({ id: createId(), ...updatedTask });
@@ -1248,7 +1268,7 @@ function openEventDialog(options = {}) {
   els.taskType.value = task && task.kind || 'event';
   els.taskRepeat.value = task && task.recurrence || 'none';
   if (els.taskStartWeek) {
-    const recurrenceAnchor = task && (task.recurrenceStartDate || task.nextAnyDayDate || task.anyDayDate || task.date);
+    const recurrenceAnchor = task && (task.recurrenceStartWeek || task.recurrenceStartDate || task.nextAnyDayDate || task.anyDayDate || task.date);
     els.taskStartWeek.value = recurrenceAnchor && els.taskRepeat.value !== 'none'
       ? dateKey(startOfWeek(parseDate(recurrenceAnchor)))
       : '';
@@ -1805,12 +1825,16 @@ function normalizeTask(task) {
     normalized.anyDayDate = normalized.anyDayDate || normalized.nextAnyDayDate || dateKey(startOfWeek(new Date()));
   }
   if (isRecurringTask(normalized)) {
+    normalized.recurrenceStartWeek = normalized.recurrenceStartWeek
+      || (normalized.recurrenceStartDate ? dateKey(startOfWeek(parseDate(normalized.recurrenceStartDate))) : '')
+      || (normalized.date ? dateKey(startOfWeek(parseDate(normalized.date))) : '');
     normalized.recurrenceStartDate = normalized.recurrenceStartDate
-      || normalized.date
+      || getRecurringAnchorDate(normalized)
       || normalized.nextAnyDayDate
       || normalized.anyDayDate
       || '';
   } else {
+    delete normalized.recurrenceStartWeek;
     delete normalized.recurrenceStartDate;
   }
   normalized.reminder = normalized.reminder || 'day-before';
