@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260923-26';
+const APP_VERSION = '20260923-27';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -652,6 +652,12 @@ function renderWeek() {
     ? Math.max(0, ((untimedStartMinutes - range.startMinutes) / 60) * hourHeight)
     : 0;
   const compactTimeline = hourHeight < 40;
+  // Use fixed five-minute CSS grid rows for event placement. The visible
+  // hour lines remain unchanged, but cards no longer depend on a separately
+  // calculated pixel offset that can drift on Safari/iPad.
+  const timelineSlotMinutes = 5;
+  const timelineSlotHeight = hourHeight / (60 / timelineSlotMinutes);
+  const timelineSlots = Math.max(1, Math.ceil((range.endMinutes - range.startMinutes) / timelineSlotMinutes));
   const timedByDay = days.map((day) => openOccurrences
     .filter((item) => item.dateKey === dateKey(day))
     .filter((item) => Boolean(getTaskTimeBounds(item.task))));
@@ -685,6 +691,8 @@ function renderWeek() {
   const timelineHeight = Math.max(1, baseTimelineHeight + bottomBuffer);
   grid.style.setProperty('--timeline-height', `${timelineHeight}px`);
   grid.style.setProperty('--hour-height', `${hourHeight}px`);
+  grid.style.setProperty('--timeline-slot-height', `${timelineSlotHeight}px`);
+  grid.style.setProperty('--timeline-slots', `${timelineSlots}`);
   grid.style.setProperty('--untimed-height', `${untimedHeight}px`);
   grid.style.setProperty('--untimed-start', `${untimedStart}px`);
 
@@ -746,6 +754,8 @@ function renderWeek() {
     const daySetting = getDaySetting(index);
     const languageClass = !daySetting.label && index === 5 ? ' language-spanish' : !daySetting.label && index === 6 ? ' language-dutch' : '';
     timeline.className = `day-timeline${key === todayKey ? ' today' : ''}${languageClass}`;
+    timeline.style.setProperty('--timeline-slot-height', `${timelineSlotHeight}px`);
+    timeline.style.setProperty('--timeline-slots', `${timelineSlots}`);
     timeline.style.setProperty('--untimed-height', `${untimedHeight}px`);
     timeline.style.setProperty('--untimed-start', `${untimedStart}px`);
     timeline.addEventListener('click', (event) => {
@@ -814,14 +824,22 @@ function renderWeek() {
     const renderSidePlacement = (placement, placementIndex) => {
       const element = createTaskElement(placement.item);
       const bounds = getTaskTimeBounds(placement.item.task);
-      const top = ((bounds.start - range.startMinutes) / 60) * hourHeight;
+      const relativeStart = Math.max(0, bounds.start - range.startMinutes);
+      const relativeEnd = Math.max(relativeStart + timelineSlotMinutes, bounds.end - range.startMinutes);
+      const startRow = Math.floor(relativeStart / timelineSlotMinutes) + 1;
+      const endRow = Math.min(timelineSlots + 1, Math.max(startRow + 1, Math.ceil(relativeEnd / timelineSlotMinutes) + 1));
+      const remainderMinutes = relativeStart % timelineSlotMinutes;
       const minimumHeight = Math.max(compactTimeline ? 31 : 42, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
-      const laneWidth = placement.laneCount > 1 ? 100 : 100 / placement.laneCount;
       element.classList.add('timed-event');
-      element.style.top = `${top}px`;
+      element.style.position = 'relative';
+      element.style.gridColumn = '1';
+      element.style.gridRow = `${startRow} / ${endRow}`;
+      element.style.alignSelf = 'start';
+      element.style.top = 'auto';
+      element.style.left = 'auto';
+      element.style.width = 'auto';
+      element.style.margin = `${(remainderMinutes / timelineSlotMinutes) * timelineSlotHeight}px 3px 0`;
       element.style.height = 'auto';
-      element.style.left = '3px';
-      element.style.width = 'calc(100% - 6px)';
       element.style.zIndex = String(4 + placementIndex);
       if (untimedHeight && bounds.start < untimedEndMinutes && bounds.end > untimedStartMinutes) {
         element.style.zIndex = '6';

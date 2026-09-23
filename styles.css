@@ -131,7 +131,7 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .day-header.language-dutch { background: #f3f7ff; }
 .time-axis { position: relative; min-height: var(--timeline-height); }
 .timeline-label { position: absolute; right: 7px; z-index: 2; color: #9da2af; font-size: 10px; font-weight: 700; line-height: 14px; transform: translateY(-50%); white-space: nowrap; }
-.day-timeline { position: relative; min-height: var(--timeline-height); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); background: #fcfcfe; overflow: hidden; }
+.day-timeline { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: repeat(var(--timeline-slots, 1), var(--timeline-slot-height, 5px)); align-content: start; min-height: var(--timeline-height); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); background: #fcfcfe; overflow: hidden; }
 .day-timeline.today { border-color: #cbcaff; box-shadow: inset 3px 0 0 var(--violet); }
 .day-timeline.language-spanish { border-color: #f0dfc3; background: #fffdf8; }
 .day-timeline.language-dutch { border-color: #d8e3f8; background: #fbfdff; }
