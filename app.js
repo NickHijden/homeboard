@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260923-23';
+const APP_VERSION = '20260923-25';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -397,12 +397,44 @@ function getTaskAssigneeLabel(task) {
   return task.assignee === 'me' ? 'Nick' : task.assignee === 'partner' ? 'Stephany' : 'Both';
 }
 
+function getTaskOverviewRecurrenceRank(task) {
+  const order = { weekly: 0, biweekly: 1, monthly: 2, quarterly: 3, none: 4 };
+  return Object.prototype.hasOwnProperty.call(order, task.recurrence) ? order[task.recurrence] : order.none;
+}
+
+function getTaskOverviewRows(tasks) {
+  const rows = [];
+  tasks.forEach((task) => {
+    const title = String(task.title || '').trim();
+    const normalizedTitle = title.toLowerCase();
+    const isCountedHouseholdTask = normalizedTitle === 'dishes' || normalizedTitle === 'laundry';
+    if (!isCountedHouseholdTask) {
+      rows.push({ task, title, count: 1 });
+      return;
+    }
+    const existing = rows.find((row) => row.groupKey === normalizedTitle);
+    if (existing) {
+      existing.count += 1;
+      return;
+    }
+    rows.push({
+      groupKey: normalizedTitle,
+      task,
+      title: normalizedTitle === 'dishes' ? 'Dishes' : 'Laundry',
+      count: 1,
+    });
+  });
+  return rows.sort((left, right) => getTaskOverviewRecurrenceRank(left.task) - getTaskOverviewRecurrenceRank(right.task)
+    || left.title.localeCompare(right.title));
+}
+
 function renderTaskOverview() {
   if (!els.taskOverviewList) return;
   const tasks = state.data.tasks
     .filter((task) => task.kind === 'task')
     .slice()
-    .sort((left, right) => String(left.title || '').localeCompare(String(right.title || '')));
+    .sort((left, right) => getTaskOverviewRecurrenceRank(left) - getTaskOverviewRecurrenceRank(right)
+      || String(left.title || '').localeCompare(String(right.title || '')));
   const recurringCount = tasks.filter((task) => isRecurringTask(task)).length;
   if (els.taskOverviewSummary) {
     els.taskOverviewSummary.innerHTML = `<span class="summary-dot"></span><span><strong>${tasks.length}</strong> ${tasks.length === 1 ? 'task' : 'tasks'} · ${recurringCount} recurring</span>`;
@@ -413,8 +445,8 @@ function renderTaskOverview() {
     return;
   }
   const columns = [
-    { key: 'me', label: 'Nick', tasks: tasks.filter((task) => task.assignee === 'me' || task.assignee === 'both') },
-    { key: 'partner', label: 'Stephany', tasks: tasks.filter((task) => task.assignee === 'partner' || task.assignee === 'both') },
+    { key: 'me', label: 'Nick', tasks: getTaskOverviewRows(tasks.filter((task) => task.assignee === 'me' || task.assignee === 'both')) },
+    { key: 'partner', label: 'Stephany', tasks: getTaskOverviewRows(tasks.filter((task) => task.assignee === 'partner' || task.assignee === 'both')) },
   ];
   columns.forEach((column) => {
     const section = document.createElement('section');
@@ -425,15 +457,19 @@ function renderTaskOverview() {
     if (!column.tasks.length) {
       list.innerHTML = '<p class="task-overview-column-empty">No tasks</p>';
     }
-    column.tasks.forEach((task) => {
+    column.tasks.forEach((overviewTask) => {
+      const task = overviewTask.task;
+      const displayTitle = overviewTask.count > 1 || overviewTask.groupKey
+        ? `${overviewTask.title} (${overviewTask.count}x)`
+        : overviewTask.title;
       const row = document.createElement('button');
       row.className = 'task-overview-item task';
       row.type = 'button';
-      row.title = `Edit ${task.title}`;
-      row.setAttribute('aria-label', `Edit ${task.title}, ${getTaskRecurrenceLabel(task)}`);
+      row.title = `Edit ${displayTitle}`;
+      row.setAttribute('aria-label', `Edit ${displayTitle}, ${getTaskRecurrenceLabel(task)}`);
       row.innerHTML = `
         <span class="task-overview-main">
-          <strong class="task-overview-title">${escapeHtml(task.title)}</strong>
+          <strong class="task-overview-title">${escapeHtml(displayTitle)}</strong>
           <span class="task-overview-interval">${escapeHtml(getTaskRecurrenceLabel(task))}</span>
         </span>
         <span class="task-overview-arrow" aria-hidden="true">›</span>
@@ -771,20 +807,22 @@ function renderWeek() {
     }
 
     const timedPlacements = timedLayoutsByDay[index];
-    // Every timed card keeps its own calculated top position. Overlapping
-    // items use horizontal lanes, so a later item can never be pushed down by
-    // the height of an earlier card (for example 9:01 PM must stay at 9:01).
-    const renderSidePlacement = (placement) => {
+    // Every timed card keeps its own calculated top position. True collisions
+    // use the full column width and overlap instead of shrinking the cards
+    // until their titles become unreadable. A later card is placed above an
+    // earlier one and can be tapped to inspect or edit it.
+    const renderSidePlacement = (placement, placementIndex) => {
       const element = createTaskElement(placement.item);
       const bounds = getTaskTimeBounds(placement.item.task);
       const top = ((bounds.start - range.startMinutes) / 60) * hourHeight;
       const minimumHeight = Math.max(compactTimeline ? 31 : 42, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
-      const laneWidth = 100 / placement.laneCount;
+      const laneWidth = placement.laneCount > 1 ? 100 : 100 / placement.laneCount;
       element.classList.add('timed-event');
       element.style.top = `${top}px`;
       element.style.height = 'auto';
-      element.style.left = `calc(${placement.lane * laneWidth}% + 3px)`;
-      element.style.width = `calc(${laneWidth}% - 6px)`;
+      element.style.left = '3px';
+      element.style.width = 'calc(100% - 6px)';
+      element.style.zIndex = String(4 + placementIndex);
       if (untimedHeight && bounds.start < untimedEndMinutes && bounds.end > untimedStartMinutes) {
         element.style.zIndex = '6';
       }
@@ -910,10 +948,11 @@ function layoutTimedOccurrences(occurrences) {
       laneEnds[lane] = bounds.end;
       groupPlacements.push({ item, lane });
     });
-    const laneCount = Math.max(1, laneEnds.length);
-    // Keep every item in a horizontal lane, including groups of three or
-    // more. A vertical stack would make the visual position disagree with the
-    // entered time and can move a 9:01 PM task down to a much later row.
+    const laneCount = overlapGroup.items.length > 1 ? 2 : 1;
+    // True collisions deliberately overlap at full width. This keeps the
+    // title readable and, importantly, never changes the item's real top
+    // position. The lane value is retained only for compatibility with the
+    // placement shape used by the renderer.
     groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount, stackGroupId: null }));
   });
   return layout;
