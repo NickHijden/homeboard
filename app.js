@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260923-21';
+const APP_VERSION = '20260923-23';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -399,52 +399,53 @@ function getTaskAssigneeLabel(task) {
 
 function renderTaskOverview() {
   if (!els.taskOverviewList) return;
-  const tasks = state.data.tasks.slice().sort((left, right) => {
-    const leftAnyDay = left.anyDay ? 0 : 1;
-    const rightAnyDay = right.anyDay ? 0 : 1;
-    if (leftAnyDay !== rightAnyDay) return leftAnyDay - rightAnyDay;
-    const leftDate = parseDate(left.anyDay ? (left.nextAnyDayDate || left.anyDayDate) : left.date);
-    const rightDate = parseDate(right.anyDay ? (right.nextAnyDayDate || right.anyDayDate) : right.date);
-    return (leftDate ? leftDate.getTime() : Number.MAX_SAFE_INTEGER) - (rightDate ? rightDate.getTime() : Number.MAX_SAFE_INTEGER)
-      || (parseTimeMinutes(left.startTime) || 0) - (parseTimeMinutes(right.startTime) || 0)
-      || String(left.title || '').localeCompare(String(right.title || ''));
-  });
+  const tasks = state.data.tasks
+    .filter((task) => task.kind === 'task')
+    .slice()
+    .sort((left, right) => String(left.title || '').localeCompare(String(right.title || '')));
   const recurringCount = tasks.filter((task) => isRecurringTask(task)).length;
-  const anyDayCount = tasks.filter((task) => task.anyDay).length;
   if (els.taskOverviewSummary) {
-    els.taskOverviewSummary.innerHTML = `<span class="summary-dot"></span><span><strong>${tasks.length}</strong> saved ${tasks.length === 1 ? 'task' : 'tasks'} · ${recurringCount} recurring${anyDayCount ? ` · ${anyDayCount} any day` : ''}</span>`;
+    els.taskOverviewSummary.innerHTML = `<span class="summary-dot"></span><span><strong>${tasks.length}</strong> ${tasks.length === 1 ? 'task' : 'tasks'} · ${recurringCount} recurring</span>`;
   }
   els.taskOverviewList.innerHTML = '';
   if (!tasks.length) {
-    els.taskOverviewList.innerHTML = '<p class="task-overview-empty">No tasks saved yet. Add an event to get started.</p>';
+    els.taskOverviewList.innerHTML = '<p class="task-overview-empty">No tasks saved yet.</p>';
     return;
   }
-  tasks.forEach((task) => {
-    const kind = task.kind === 'expiry' ? 'expiry' : task.kind === 'wellness' ? 'wellness' : task.kind === 'event' ? 'event' : 'task';
-    const startWeekLabel = getTaskOverviewStartWeek(task);
-    const row = document.createElement('button');
-    row.className = `task-overview-item ${kind}`;
-    row.type = 'button';
-    row.title = `Edit ${task.title}`;
-    row.setAttribute('aria-label', `Edit ${task.title}, ${getTaskOverviewSchedule(task)}`);
-    row.innerHTML = `
-      <span class="task-overview-main">
-        <strong class="task-overview-title">${escapeHtml(task.title)}</strong>
-        <span class="task-overview-schedule">${escapeHtml(getTaskOverviewSchedule(task))}</span>
-        ${startWeekLabel ? `<span class="task-overview-start">${escapeHtml(startWeekLabel)}</span>` : ''}
-      </span>
-      <span class="task-overview-details">
-        <span class="task-overview-time">${escapeHtml(formatEventTime(task) || 'Any time')}</span>
-        <span class="task-overview-chip">${escapeHtml(getTaskKindLabel(task))}</span>
-        <span class="task-overview-assignee"><span class="assignee-dot overview-assignee-dot assignee-${task.assignee === 'me' ? 'me' : task.assignee === 'partner' ? 'partner' : 'both'}" aria-hidden="true"></span>${escapeHtml(getTaskAssigneeLabel(task))}</span>
-      </span>
-      <span class="task-overview-arrow" aria-hidden="true">›</span>
-    `;
-    row.addEventListener('click', () => {
-      closeDialog(els.taskOverviewDialog);
-      openEventDialog({ task, date: task.anyDay ? 'any-day' : task.date });
+  const columns = [
+    { key: 'me', label: 'Nick', tasks: tasks.filter((task) => task.assignee === 'me' || task.assignee === 'both') },
+    { key: 'partner', label: 'Stephany', tasks: tasks.filter((task) => task.assignee === 'partner' || task.assignee === 'both') },
+  ];
+  columns.forEach((column) => {
+    const section = document.createElement('section');
+    section.className = 'task-overview-column';
+    section.innerHTML = `<div class="task-overview-column-heading"><h3>${column.label}</h3><span>${column.tasks.length}</span></div>`;
+    const list = document.createElement('div');
+    list.className = 'task-overview-column-list';
+    if (!column.tasks.length) {
+      list.innerHTML = '<p class="task-overview-column-empty">No tasks</p>';
+    }
+    column.tasks.forEach((task) => {
+      const row = document.createElement('button');
+      row.className = 'task-overview-item task';
+      row.type = 'button';
+      row.title = `Edit ${task.title}`;
+      row.setAttribute('aria-label', `Edit ${task.title}, ${getTaskRecurrenceLabel(task)}`);
+      row.innerHTML = `
+        <span class="task-overview-main">
+          <strong class="task-overview-title">${escapeHtml(task.title)}</strong>
+          <span class="task-overview-interval">${escapeHtml(getTaskRecurrenceLabel(task))}</span>
+        </span>
+        <span class="task-overview-arrow" aria-hidden="true">›</span>
+      `;
+      row.addEventListener('click', () => {
+        closeDialog(els.taskOverviewDialog);
+        openEventDialog({ task, date: task.anyDay ? 'any-day' : task.date });
+      });
+      list.appendChild(row);
     });
-    els.taskOverviewList.appendChild(row);
+    section.appendChild(list);
+    els.taskOverviewList.appendChild(section);
   });
 }
 
@@ -770,16 +771,9 @@ function renderWeek() {
     }
 
     const timedPlacements = timedLayoutsByDay[index];
-    // Overlapping events normally share horizontal lanes. Dense groups that
-    // start in the same hour (or contain three or more items) are rendered as
-    // a readable full-width stack instead of shrinking every card too far.
-    const stackGroups = new Map();
-    timedPlacements.forEach((placement) => {
-      if (placement.stackGroupId === null) return;
-      if (!stackGroups.has(placement.stackGroupId)) stackGroups.set(placement.stackGroupId, []);
-      stackGroups.get(placement.stackGroupId).push(placement);
-    });
-    const renderedStackGroups = new Set();
+    // Every timed card keeps its own calculated top position. Overlapping
+    // items use horizontal lanes, so a later item can never be pushed down by
+    // the height of an earlier card (for example 9:01 PM must stay at 9:01).
     const renderSidePlacement = (placement) => {
       const element = createTaskElement(placement.item);
       const bounds = getTaskTimeBounds(placement.item.task);
@@ -797,28 +791,7 @@ function renderWeek() {
       timeline.appendChild(element);
       element.style.height = `${Math.max(minimumHeight, element.scrollHeight + 2)}px`;
     };
-    timedPlacements.forEach((placement) => {
-      if (placement.stackGroupId === null) {
-        renderSidePlacement(placement);
-        return;
-      }
-      if (renderedStackGroups.has(placement.stackGroupId)) return;
-      renderedStackGroups.add(placement.stackGroupId);
-      const group = stackGroups.get(placement.stackGroupId);
-      const groupStart = Math.min(...group.map((entry) => getTaskTimeBounds(entry.item.task).start));
-      const cluster = document.createElement('div');
-      cluster.className = 'timed-cluster';
-      cluster.style.top = `${((groupStart - range.startMinutes) / 60) * hourHeight}px`;
-      cluster.style.left = '3px';
-      cluster.style.width = 'calc(100% - 6px)';
-      group.forEach((entry) => {
-        const element = createTaskElement(entry.item);
-        element.classList.add('timed-cluster-item');
-        element.style.height = `${getClusterCardHeight(entry.item.task)}px`;
-        cluster.appendChild(element);
-      });
-      timeline.appendChild(cluster);
-    });
+    timedPlacements.forEach(renderSidePlacement);
     grid.appendChild(timeline);
   });
 
@@ -938,10 +911,10 @@ function layoutTimedOccurrences(occurrences) {
       groupPlacements.push({ item, lane });
     });
     const laneCount = Math.max(1, laneEnds.length);
-    // Two overlapping items stay side-by-side so both keep their real
-    // vertical duration. Only denser groups use the readable full-width stack.
-    const stackGroupId = overlapGroup.items.length >= 3 ? placements.indexOf(overlapGroup) : null;
-    groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount, stackGroupId }));
+    // Keep every item in a horizontal lane, including groups of three or
+    // more. A vertical stack would make the visual position disagree with the
+    // entered time and can move a 9:01 PM task down to a much later row.
+    groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount, stackGroupId: null }));
   });
   return layout;
 }
@@ -959,7 +932,10 @@ function getOccurrencesForDay(day) {
 
 function isDueOn(task, day) {
   if (task.anyDay) return false;
-  const anchor = parseDate(task.date);
+  // Keep the original recurrence anchor separate from the next visible
+  // occurrence. This means a task can be completed today without losing its
+  // future weekly, biweekly, monthly, or quarterly occurrences.
+  const anchor = parseDate(isRecurringTask(task) ? (task.recurrenceStartDate || task.date) : task.date);
   if (!anchor || day < anchor) return false;
   if (!isRecurringTask(task)) return dateKey(anchor) === dateKey(day);
   return matchesRecurringDate(anchor, day, task.recurrence);
