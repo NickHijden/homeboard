@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20260923-18" />
+    <link rel="stylesheet" href="styles.css?v=20260923-19" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -187,11 +187,31 @@
           </div>
           <button class="close-button" id="closeDaySettingsButton" type="button" aria-label="Close">×</button>
         </div>
-        <p class="settings-copy">Add a small label and a gentle background tint. Click any weekday header again whenever you want to change it.</p>
+        <p class="settings-copy">Add a small label, choose a gentle preset tint, and optionally limit the tint to certain hours.</p>
         <label class="field-label" for="daySettingLabel">Label <span class="optional">optional</span></label>
         <input class="large-input" id="daySettingLabel" type="text" maxlength="40" placeholder="e.g. Date night" autocomplete="off" />
-        <label class="field-label" for="daySettingColor">Background color</label>
-        <input class="color-input" id="daySettingColor" type="color" value="#eeeefe" />
+        <label class="field-label">Background color</label>
+        <div class="day-color-palette" id="daySettingPalette" role="radiogroup" aria-label="Background color presets">
+          <button class="day-color-option" type="button" data-color="" role="radio" aria-checked="false" title="No tint"><span class="day-color-swatch no-tint" aria-hidden="true"></span><span>No tint</span></button>
+          <button class="day-color-option" type="button" data-color="#aaa8f0" role="radio" aria-checked="false" title="Lavender"><span class="day-color-swatch" style="--swatch:#aaa8f0" aria-hidden="true"></span><span>Lavender</span></button>
+          <button class="day-color-option" type="button" data-color="#a9ccee" role="radio" aria-checked="false" title="Sky"><span class="day-color-swatch" style="--swatch:#a9ccee" aria-hidden="true"></span><span>Sky</span></button>
+          <button class="day-color-option" type="button" data-color="#9bdcc4" role="radio" aria-checked="false" title="Mint"><span class="day-color-swatch" style="--swatch:#9bdcc4" aria-hidden="true"></span><span>Mint</span></button>
+          <button class="day-color-option" type="button" data-color="#f3c99f" role="radio" aria-checked="false" title="Peach"><span class="day-color-swatch" style="--swatch:#f3c99f" aria-hidden="true"></span><span>Peach</span></button>
+          <button class="day-color-option" type="button" data-color="#f1da8a" role="radio" aria-checked="false" title="Butter"><span class="day-color-swatch" style="--swatch:#f1da8a" aria-hidden="true"></span><span>Butter</span></button>
+          <button class="day-color-option" type="button" data-color="#eab6cc" role="radio" aria-checked="false" title="Rose"><span class="day-color-swatch" style="--swatch:#eab6cc" aria-hidden="true"></span><span>Rose</span></button>
+        </div>
+        <input id="daySettingColor" type="hidden" value="" />
+        <label class="field-label">Tint hours <span class="optional">optional · all day by default</span></label>
+        <div class="form-row day-style-hours">
+          <div>
+            <label class="field-label" for="daySettingStart">From</label>
+            <select class="large-input" id="daySettingStart" aria-label="Tint starts at"></select>
+          </div>
+          <div>
+            <label class="field-label" for="daySettingEnd">Until</label>
+            <select class="large-input" id="daySettingEnd" aria-label="Tint ends at"></select>
+          </div>
+        </div>
         <div class="dialog-actions">
           <button class="subtle-button" id="clearDaySettingButton" type="button">Clear style</button>
           <button class="secondary-button" id="closeDaySettingsButtonAlt" type="button">Cancel</button>
@@ -244,6 +264,6 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260923-18" defer></script>
+    <script src="app.js?v=20260923-19" defer></script>
   </body>
 </html>

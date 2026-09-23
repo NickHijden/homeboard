@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260923-18';
+const APP_VERSION = '20260923-19';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -125,8 +125,11 @@ const els = {
   daySettingsDialog: document.querySelector('#daySettingsDialog'),
   daySettingsForm: document.querySelector('#daySettingsForm'),
   daySettingsTitle: document.querySelector('#daySettingsTitle'),
+  daySettingPalette: document.querySelector('#daySettingPalette'),
   daySettingLabel: document.querySelector('#daySettingLabel'),
   daySettingColor: document.querySelector('#daySettingColor'),
+  daySettingStart: document.querySelector('#daySettingStart'),
+  daySettingEnd: document.querySelector('#daySettingEnd'),
   clearDaySettingButton: document.querySelector('#clearDaySettingButton'),
   closeDaySettingsButton: document.querySelector('#closeDaySettingsButton'),
   closeDaySettingsButtonAlt: document.querySelector('#closeDaySettingsButtonAlt'),
@@ -135,6 +138,7 @@ const els = {
 const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const shortWeekdayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
+populateDaySettingHourOptions();
 if (applyDataMigrations()) persist();
 render();
 bindEvents();
@@ -171,6 +175,12 @@ function bindEvents() {
   }
   els.eventDialog.addEventListener('click', closeDialogOnBackdrop);
   if (els.daySettingsForm) els.daySettingsForm.addEventListener('submit', saveDaySettings);
+  if (els.daySettingPalette) els.daySettingPalette.addEventListener('click', (event) => {
+    const option = event.target.closest('.day-color-option');
+    if (!option) return;
+    setDayStyleColor(option.dataset.color || '');
+  });
+  if (els.daySettingStart) els.daySettingStart.addEventListener('change', updateDayStyleEndOptions);
   if (els.closeDaySettingsButton) els.closeDaySettingsButton.addEventListener('click', () => closeDialog(els.daySettingsDialog));
   if (els.closeDaySettingsButtonAlt) els.closeDaySettingsButtonAlt.addEventListener('click', () => closeDialog(els.daySettingsDialog));
   if (els.clearDaySettingButton) els.clearDaySettingButton.addEventListener('click', clearDaySettings);
@@ -331,13 +341,56 @@ function getDaySetting(index) {
   return settings[index] || settings[String(index)] || { label: '', color: '' };
 }
 
+function populateDaySettingHourOptions() {
+  if (!els.daySettingStart || !els.daySettingEnd) return;
+  els.daySettingStart.innerHTML = '<option value="">All day</option>';
+  els.daySettingEnd.innerHTML = '<option value="">All day</option>';
+  for (let hour = 0; hour < 24; hour += 1) {
+    const value = `${String(hour).padStart(2, '0')}:00`;
+    const label = formatHourLabel(hour * 60);
+    els.daySettingStart.insertAdjacentHTML('beforeend', `<option value="${value}">${label}</option>`);
+  }
+  for (let hour = 1; hour <= 24; hour += 1) {
+    const value = hour === 24 ? '24:00' : `${String(hour).padStart(2, '0')}:00`;
+    const label = hour === 24 ? 'Midnight' : formatHourLabel(hour * 60);
+    els.daySettingEnd.insertAdjacentHTML('beforeend', `<option value="${value}">${label}</option>`);
+  }
+  updateDayStyleEndOptions();
+}
+
+function setDayStyleColor(color) {
+  const selectedColor = String(color || '').trim();
+  if (els.daySettingColor) els.daySettingColor.value = selectedColor;
+  if (!els.daySettingPalette) return;
+  els.daySettingPalette.querySelectorAll('.day-color-option').forEach((option) => {
+    const selected = (option.dataset.color || '') === selectedColor;
+    option.classList.toggle('selected', selected);
+    option.setAttribute('aria-checked', selected ? 'true' : 'false');
+  });
+}
+
+function updateDayStyleEndOptions() {
+  if (!els.daySettingStart || !els.daySettingEnd) return;
+  const start = parseDayStyleTime(els.daySettingStart.value);
+  const currentEnd = els.daySettingEnd.value;
+  Array.from(els.daySettingEnd.options).forEach((option) => {
+    const end = parseDayStyleTime(option.value);
+    option.disabled = start !== null && end !== null && end <= start;
+  });
+  const selectedOption = Array.from(els.daySettingEnd.options).find((option) => option.value === currentEnd);
+  if (selectedOption && selectedOption.disabled) els.daySettingEnd.value = '';
+}
+
 function openDaySettings(index) {
   if (!els.daySettingsDialog || !els.daySettingsForm) return;
   editingDayIndex = index;
   const setting = getDaySetting(index);
   if (els.daySettingsTitle) els.daySettingsTitle.textContent = `Customize ${weekdayNames[index]}`;
   if (els.daySettingLabel) els.daySettingLabel.value = setting.label || '';
-  if (els.daySettingColor) els.daySettingColor.value = setting.color || '#eeeefe';
+  setDayStyleColor(setting.color || '');
+  if (els.daySettingStart) els.daySettingStart.value = setting.startTime || '';
+  if (els.daySettingEnd) els.daySettingEnd.value = setting.endTime || '';
+  updateDayStyleEndOptions();
   openDialog(els.daySettingsDialog);
   window.setTimeout(() => els.daySettingLabel && els.daySettingLabel.focus(), 30);
 }
@@ -349,7 +402,23 @@ function saveDaySettings(event) {
   state.data.daySettings = state.data.daySettings || {};
   const label = String(els.daySettingLabel && els.daySettingLabel.value || '').trim();
   const color = String(els.daySettingColor && els.daySettingColor.value || '').trim();
-  state.data.daySettings[editingDayIndex] = { label, color, updatedAt: nowIso() };
+  let startTime = String(els.daySettingStart && els.daySettingStart.value || '').trim();
+  let endTime = String(els.daySettingEnd && els.daySettingEnd.value || '').trim();
+  const startMinutes = parseDayStyleTime(startTime);
+  const endMinutes = parseDayStyleTime(endTime);
+  if (startMinutes !== null && endMinutes !== null && endMinutes <= startMinutes) {
+    showToast('Choose an end time after the start time.');
+    return;
+  }
+  // A single boundary is useful for quick setup: “from 6 PM” means until
+  // midnight, while “until 9 AM” means from the beginning of the day.
+  if (startMinutes !== null && endMinutes === null) endTime = '24:00';
+  if (startMinutes === null && endMinutes !== null) startTime = '00:00';
+  if (!label && !color && !startTime && !endTime) {
+    delete state.data.daySettings[editingDayIndex];
+  } else {
+    state.data.daySettings[editingDayIndex] = { label, color, startTime, endTime, updatedAt: nowIso() };
+  }
   persist();
   closeDialog(els.daySettingsDialog);
   render();
@@ -375,6 +444,24 @@ function hexToRgba(hex, alpha) {
   const green = (value >> 8) & 255;
   const blue = value & 255;
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function parseDayStyleTime(value) {
+  if (String(value || '') === '24:00') return 24 * 60;
+  const minutes = parseTimeMinutes(value);
+  return minutes === null ? null : minutes;
+}
+
+function getDayStyleRange(setting, range) {
+  if (!setting || !setting.color) return null;
+  const requestedStart = parseDayStyleTime(setting.startTime);
+  const requestedEnd = parseDayStyleTime(setting.endTime);
+  const start = requestedStart === null ? range.startMinutes : requestedStart;
+  const end = requestedEnd === null ? range.endMinutes : requestedEnd;
+  const visibleStart = Math.max(range.startMinutes, start);
+  const visibleEnd = Math.min(range.endMinutes, end);
+  if (visibleEnd <= visibleStart) return null;
+  return { start: visibleStart, end: visibleEnd };
 }
 
 function renderWeek() {
@@ -463,7 +550,11 @@ function renderWeek() {
     header.setAttribute('role', 'button');
     header.setAttribute('aria-label', `Customize ${weekdayNames[index]}`);
     header.title = `Customize ${weekdayNames[index]}`;
-    if (daySetting.color) header.style.backgroundColor = hexToRgba(daySetting.color, .13);
+    // A limited tint belongs to the timeline only; an all-day tint also gets
+    // a gentle header tint so the customized day remains easy to spot.
+    if (daySetting.color && !daySetting.startTime && !daySetting.endTime) {
+      header.style.backgroundColor = hexToRgba(daySetting.color, .13);
+    }
     header.addEventListener('click', () => openDaySettings(index));
     header.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -503,7 +594,6 @@ function renderWeek() {
     const daySetting = getDaySetting(index);
     const languageClass = !daySetting.label && index === 5 ? ' language-spanish' : !daySetting.label && index === 6 ? ' language-dutch' : '';
     timeline.className = `day-timeline${key === todayKey ? ' today' : ''}${languageClass}`;
-    if (daySetting.color) timeline.style.backgroundColor = hexToRgba(daySetting.color, .06);
     timeline.style.setProperty('--untimed-height', `${untimedHeight}px`);
     timeline.style.setProperty('--untimed-start', `${untimedStart}px`);
     timeline.addEventListener('click', (event) => {
@@ -527,6 +617,17 @@ function renderWeek() {
     if (index === 5) languageBackdrop.innerHTML = '<span>🌵</span><span>🌮</span><span>🍹</span><span>🎸</span>';
     if (index === 6) languageBackdrop.innerHTML = '<span>🧀</span><span>🥞</span><span>🧇</span><span>🚲</span>';
     if (languageBackdrop.innerHTML) timeline.appendChild(languageBackdrop);
+
+    const dayStyleRange = getDayStyleRange(daySetting, range);
+    if (dayStyleRange) {
+      const dayStyleBand = document.createElement('div');
+      dayStyleBand.className = 'day-style-band';
+      dayStyleBand.setAttribute('aria-hidden', 'true');
+      dayStyleBand.style.top = `${((dayStyleRange.start - range.startMinutes) / 60) * hourHeight}px`;
+      dayStyleBand.style.height = `${((dayStyleRange.end - dayStyleRange.start) / 60) * hourHeight}px`;
+      dayStyleBand.style.backgroundColor = hexToRgba(daySetting.color, .075);
+      timeline.appendChild(dayStyleBand);
+    }
 
     if (index < 5) {
       const workingHoursBand = document.createElement('div');
@@ -1574,14 +1675,34 @@ function normalizeDaySettings(settings) {
   const normalized = {};
   for (let index = 0; index < 7; index += 1) {
     const setting = settings && settings[index] || settings && settings[String(index)];
-    if (!setting || (!setting.label && !setting.color)) continue;
+    if (!setting) continue;
+    let startTime = normalizeDayStyleTime(setting.startTime, false);
+    let endTime = normalizeDayStyleTime(setting.endTime, true);
+    const startMinutes = parseDayStyleTime(startTime);
+    const endMinutes = parseDayStyleTime(endTime);
+    if (startMinutes !== null && endMinutes !== null && endMinutes <= startMinutes) {
+      startTime = '';
+      endTime = '';
+    }
+    if (!setting.label && !setting.color && !startTime && !endTime) continue;
     normalized[index] = {
       label: String(setting.label || '').trim().slice(0, 40),
       color: /^#[0-9a-f]{6}$/i.test(String(setting.color || '')) ? String(setting.color) : '',
+      startTime,
+      endTime,
       updatedAt: setting.updatedAt || nowIso(),
     };
   }
   return normalized;
+}
+
+function normalizeDayStyleTime(value, isEnd) {
+  const text = String(value || '').trim();
+  if (isEnd && text === '24:00') return text;
+  if (!/^\d{2}:00$/.test(text)) return '';
+  const hour = Number(text.slice(0, 2));
+  if (hour < 0 || hour > (isEnd ? 23 : 23)) return '';
+  return text;
 }
 
 function mergeDaySettings(local, remote) {

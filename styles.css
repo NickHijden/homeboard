@@ -135,6 +135,7 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .day-timeline.today { border-color: #cbcaff; box-shadow: inset 3px 0 0 var(--violet); }
 .day-timeline.language-spanish { border-color: #f0dfc3; background: #fffdf8; }
 .day-timeline.language-dutch { border-color: #d8e3f8; background: #fbfdff; }
+.day-style-band { position: absolute; right: 0; left: 0; z-index: 0; border-top: 1px solid rgba(105, 103, 232, .045); border-bottom: 1px solid rgba(105, 103, 232, .045); pointer-events: none; }
 .working-hours-band { position: absolute; right: 0; left: 0; z-index: 0; border-top: 1px solid rgba(105, 103, 232, .055); border-bottom: 1px solid rgba(105, 103, 232, .055); background: rgba(105, 103, 232, .045); pointer-events: none; }
 .timeline-lines { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 1; background-image: linear-gradient(to bottom, rgba(216, 218, 229, .78) 1px, transparent 1px); background-size: 100% var(--hour-height); pointer-events: none; }
 .language-backdrop { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 0; display: flex; flex-wrap: wrap; align-content: space-around; justify-content: space-around; overflow: hidden; opacity: .14; pointer-events: none; }
@@ -256,6 +257,14 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .complete-button { min-height: 43px; padding: 0 15px; border: 0; border-radius: 12px; background: var(--mint-soft); color: #278b6e; font-weight: 700; }
 .complete-button:hover { background: #d5f1e7; }
 .color-input { width: 100%; height: 43px; margin-bottom: 17px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: #fcfcfe; cursor: pointer; }
+.day-color-palette { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin: -1px 0 17px; }
+.day-color-option { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 7px 6px; border: 1px solid var(--line); border-radius: 9px; background: #fcfcfe; color: var(--muted); font-size: 10px; font-weight: 700; text-align: left; }
+.day-color-option:hover, .day-color-option:focus-visible { border-color: #b8b7f7; background: #f8f8ff; outline: none; }
+.day-color-option.selected { border-color: var(--violet); background: var(--violet-soft); color: var(--violet-dark); box-shadow: 0 0 0 2px rgba(105, 103, 232, .08); }
+.day-color-swatch { flex: 0 0 auto; width: 16px; height: 16px; border: 1px solid rgba(44, 48, 70, .1); border-radius: 50%; background: var(--swatch); }
+.day-color-swatch.no-tint { background: linear-gradient(135deg, #fff 43%, #d9dbe5 44%, #d9dbe5 56%, #fff 57%); }
+.day-style-hours { margin-bottom: 2px; }
+.day-style-hours .large-input { margin-bottom: 17px; }
 .day-settings-dialog { width: 390px; }
 .settings-copy { margin: -8px 0 21px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 9px; }
