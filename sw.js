@@ -1,4 +1,4 @@
-const APP_VERSION = '20260923-20';
+const APP_VERSION = '20260923-21';
 const CACHE_NAME = `homeboard-shell-${APP_VERSION}`;
 const SHELL = [
   './',

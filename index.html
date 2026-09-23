@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20260923-20" />
+    <link rel="stylesheet" href="styles.css?v=20260923-21" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -25,6 +25,7 @@
 
         <div class="topbar-actions">
           <button class="icon-button" id="settingsButton" type="button" aria-label="Open settings" title="Settings">⚙</button>
+          <button class="secondary-button overview-button" id="taskOverviewButton" type="button"><span aria-hidden="true">☷</span> Task overview</button>
           <!-- Keep the original id as a compatibility bridge for an older cached iPad script. -->
           <button class="primary-button" id="addTaskButton" type="button"><span aria-hidden="true">＋</span> Add event</button>
         </div>
@@ -115,6 +116,11 @@
               <input id="taskAnyDay" name="anyDay" type="checkbox" />
               <span>No fixed day</span>
             </label>
+            <div class="recurrence-start-group" id="recurrenceStartGroup" hidden>
+              <label class="field-label" for="taskStartWeek">Start week <span class="optional">for recurring tasks</span></label>
+              <input class="large-input" id="taskStartWeek" type="date" />
+              <p class="field-hint" id="recurrenceStartHint">This is the first week in which the task can appear.</p>
+            </div>
           </div>
           <div class="field-group">
             <label class="field-label" for="eventStart">Start time <span class="optional">optional</span></label>
@@ -220,6 +226,24 @@
       </form>
     </dialog>
 
+    <dialog class="task-overview-dialog" id="taskOverviewDialog" aria-labelledby="taskOverviewTitle">
+      <div class="task-overview-shell">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">HOUSEHOLD RHYTHM</p>
+            <h2 id="taskOverviewTitle">Task overview</h2>
+          </div>
+          <button class="close-button" id="closeTaskOverviewButton" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="settings-copy">All saved tasks at a glance. Click any row to edit it.</p>
+        <div class="task-overview-summary" id="taskOverviewSummary"></div>
+        <div class="task-overview-list" id="taskOverviewList"></div>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="closeTaskOverviewButtonAlt" type="button">Close</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog class="settings-dialog" id="settingsDialog" aria-labelledby="settingsTitle">
       <form class="task-form" id="settingsForm">
         <div class="dialog-heading">
@@ -264,6 +288,6 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260923-20" defer></script>
+    <script src="app.js?v=20260923-21" defer></script>
   </body>
 </html>

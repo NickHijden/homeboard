@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260923-20';
+const APP_VERSION = '20260923-21';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -72,6 +72,12 @@ const els = {
   weekGrid: document.querySelector('#weekGrid'),
   completedAnyDayBoard: document.querySelector('#completedAnyDayBoard'),
   addEventButton: document.querySelector('#addEventButton') || document.querySelector('#addTaskButton'),
+  taskOverviewButton: document.querySelector('#taskOverviewButton'),
+  taskOverviewDialog: document.querySelector('#taskOverviewDialog'),
+  closeTaskOverviewButton: document.querySelector('#closeTaskOverviewButton'),
+  closeTaskOverviewButtonAlt: document.querySelector('#closeTaskOverviewButtonAlt'),
+  taskOverviewSummary: document.querySelector('#taskOverviewSummary'),
+  taskOverviewList: document.querySelector('#taskOverviewList'),
   previousWeekButton: document.querySelector('#previousWeekButton'),
   nextWeekButton: document.querySelector('#nextWeekButton'),
   todayButton: document.querySelector('#todayButton'),
@@ -85,6 +91,9 @@ const els = {
   saveEventButton: document.querySelector('#saveEventButton'),
   taskTitle: document.querySelector('#taskTitle'),
   taskDate: document.querySelector('#taskDate'),
+  taskStartWeek: document.querySelector('#taskStartWeek'),
+  recurrenceStartGroup: document.querySelector('#recurrenceStartGroup'),
+  recurrenceStartHint: document.querySelector('#recurrenceStartHint'),
   taskAnyDay: document.querySelector('#taskAnyDay'),
   eventStart: document.querySelector('#eventStart') || document.querySelector('#taskTime'),
   eventEnd: document.querySelector('#eventEnd'),
@@ -158,7 +167,17 @@ function bindEvents() {
   });
 
   els.taskForm.addEventListener('submit', handleTaskSubmit);
+  if (els.taskOverviewButton) els.taskOverviewButton.addEventListener('click', () => {
+    renderTaskOverview();
+    openDialog(els.taskOverviewDialog);
+  });
+  if (els.closeTaskOverviewButton) els.closeTaskOverviewButton.addEventListener('click', () => closeDialog(els.taskOverviewDialog));
+  if (els.closeTaskOverviewButtonAlt) els.closeTaskOverviewButtonAlt.addEventListener('click', () => closeDialog(els.taskOverviewDialog));
+  if (els.taskOverviewDialog) els.taskOverviewDialog.addEventListener('click', (event) => {
+    if (event.target === els.taskOverviewDialog) closeDialog(els.taskOverviewDialog);
+  });
   if (els.taskAnyDay) els.taskAnyDay.addEventListener('change', updateAnyDayField);
+  if (els.taskRepeat) els.taskRepeat.addEventListener('change', updateRecurrenceStartField);
   els.closeDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
   els.cancelDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
   if (els.deleteEventButton) els.deleteEventButton.addEventListener('click', deleteEditingEvent);
@@ -336,6 +355,99 @@ function renderWeekHeader() {
   els.todayButton.setAttribute('aria-label', viewingCurrentWeek ? `Today is ${today}` : 'Jump to today');
 }
 
+function getTaskRecurrenceLabel(task) {
+  if (task.recurrence === 'weekly') return 'Every week';
+  if (task.recurrence === 'biweekly') return 'Every 2 weeks';
+  if (task.recurrence === 'monthly') return 'Every month';
+  if (task.recurrence === 'quarterly') return 'Every 3 months';
+  return 'One time';
+}
+
+function getTaskOverviewSchedule(task) {
+  const recurrence = getTaskRecurrenceLabel(task);
+  const date = parseDate(task.anyDay ? (task.nextAnyDayDate || task.anyDayDate) : task.date);
+  if (task.anyDay) {
+    return recurrence === 'One time'
+      ? `Any day${date ? ` · week of ${formatShortDate(date)}` : ''}`
+      : `Any day · ${recurrence}`;
+  }
+  if (!date) return recurrence;
+  const weekday = weekdayNames[(date.getDay() + 6) % 7];
+  if (task.recurrence === 'weekly') return `Every ${weekday}`;
+  if (task.recurrence === 'biweekly') return `Every 2 weeks · ${weekday}`;
+  if (task.recurrence === 'monthly') return `Every month · day ${date.getDate()}`;
+  if (task.recurrence === 'quarterly') return `Every 3 months · ${formatShortDate(date)}`;
+  return `One time · ${formatLongDate(date)}`;
+}
+
+function getTaskOverviewStartWeek(task) {
+  if (!isRecurringTask(task)) return '';
+  const anchor = parseDate(task.recurrenceStartDate || task.date || task.nextAnyDayDate || task.anyDayDate);
+  return anchor ? `Starts week of ${formatShortDate(startOfWeek(anchor))}` : '';
+}
+
+function getTaskKindLabel(task) {
+  if (task.kind === 'expiry') return 'Use-by';
+  if (task.kind === 'wellness') return 'Health & wellness';
+  if (task.kind === 'event') return 'Event';
+  return 'Task';
+}
+
+function getTaskAssigneeLabel(task) {
+  return task.assignee === 'me' ? 'Nick' : task.assignee === 'partner' ? 'Stephany' : 'Both';
+}
+
+function renderTaskOverview() {
+  if (!els.taskOverviewList) return;
+  const tasks = state.data.tasks.slice().sort((left, right) => {
+    const leftAnyDay = left.anyDay ? 0 : 1;
+    const rightAnyDay = right.anyDay ? 0 : 1;
+    if (leftAnyDay !== rightAnyDay) return leftAnyDay - rightAnyDay;
+    const leftDate = parseDate(left.anyDay ? (left.nextAnyDayDate || left.anyDayDate) : left.date);
+    const rightDate = parseDate(right.anyDay ? (right.nextAnyDayDate || right.anyDayDate) : right.date);
+    return (leftDate ? leftDate.getTime() : Number.MAX_SAFE_INTEGER) - (rightDate ? rightDate.getTime() : Number.MAX_SAFE_INTEGER)
+      || (parseTimeMinutes(left.startTime) || 0) - (parseTimeMinutes(right.startTime) || 0)
+      || String(left.title || '').localeCompare(String(right.title || ''));
+  });
+  const recurringCount = tasks.filter((task) => isRecurringTask(task)).length;
+  const anyDayCount = tasks.filter((task) => task.anyDay).length;
+  if (els.taskOverviewSummary) {
+    els.taskOverviewSummary.innerHTML = `<span class="summary-dot"></span><span><strong>${tasks.length}</strong> saved ${tasks.length === 1 ? 'task' : 'tasks'} · ${recurringCount} recurring${anyDayCount ? ` · ${anyDayCount} any day` : ''}</span>`;
+  }
+  els.taskOverviewList.innerHTML = '';
+  if (!tasks.length) {
+    els.taskOverviewList.innerHTML = '<p class="task-overview-empty">No tasks saved yet. Add an event to get started.</p>';
+    return;
+  }
+  tasks.forEach((task) => {
+    const kind = task.kind === 'expiry' ? 'expiry' : task.kind === 'wellness' ? 'wellness' : task.kind === 'event' ? 'event' : 'task';
+    const startWeekLabel = getTaskOverviewStartWeek(task);
+    const row = document.createElement('button');
+    row.className = `task-overview-item ${kind}`;
+    row.type = 'button';
+    row.title = `Edit ${task.title}`;
+    row.setAttribute('aria-label', `Edit ${task.title}, ${getTaskOverviewSchedule(task)}`);
+    row.innerHTML = `
+      <span class="task-overview-main">
+        <strong class="task-overview-title">${escapeHtml(task.title)}</strong>
+        <span class="task-overview-schedule">${escapeHtml(getTaskOverviewSchedule(task))}</span>
+        ${startWeekLabel ? `<span class="task-overview-start">${escapeHtml(startWeekLabel)}</span>` : ''}
+      </span>
+      <span class="task-overview-details">
+        <span class="task-overview-time">${escapeHtml(formatEventTime(task) || 'Any time')}</span>
+        <span class="task-overview-chip">${escapeHtml(getTaskKindLabel(task))}</span>
+        <span class="task-overview-assignee"><span class="assignee-dot overview-assignee-dot assignee-${task.assignee === 'me' ? 'me' : task.assignee === 'partner' ? 'partner' : 'both'}" aria-hidden="true"></span>${escapeHtml(getTaskAssigneeLabel(task))}</span>
+      </span>
+      <span class="task-overview-arrow" aria-hidden="true">›</span>
+    `;
+    row.addEventListener('click', () => {
+      closeDialog(els.taskOverviewDialog);
+      openEventDialog({ task, date: task.anyDay ? 'any-day' : task.date });
+    });
+    els.taskOverviewList.appendChild(row);
+  });
+}
+
 function getDaySetting(index) {
   const settings = state.data.daySettings || {};
   return settings[index] || settings[String(index)] || { label: '', color: '' };
@@ -511,7 +623,10 @@ function renderWeek() {
   // Cards have a minimum height, so leave a little room below an event that
   // ends exactly at the last visible hour instead of clipping it.
   const baseTimelineHeight = ((range.endMinutes - range.startMinutes) / 60) * hourHeight;
-  const compactClusterCardHeight = 30;
+  const getClusterCardHeight = (task) => {
+    const bounds = getTaskTimeBounds(task);
+    return Math.max(compactTimeline ? 31 : 42, ((bounds.end - bounds.start) / 60) * hourHeight - 4);
+  };
   const stackBottom = timedLayoutsByDay.reduce((latest, placements) => {
     const groups = new Map();
     placements.forEach((placement) => {
@@ -522,14 +637,14 @@ function renderWeek() {
     groups.forEach((group) => {
       const groupStart = Math.min(...group.map((placement) => getTaskTimeBounds(placement.item.task).start));
       const clusterBottom = ((groupStart - range.startMinutes) / 60) * hourHeight
-        + group.length * compactClusterCardHeight
+        + group.reduce((total, placement) => total + getClusterCardHeight(placement.item.task), 0)
         + Math.max(0, group.length - 1);
       latest = Math.max(latest, clusterBottom);
     });
     return latest;
   }, 0);
-  const stackExtraBuffer = compactTimeline ? Math.max(0, stackBottom - baseTimelineHeight + 8) : 0;
-  const bottomBuffer = hasTimedItems ? (compactTimeline ? 44 + stackExtraBuffer : 72) : 0;
+  const stackExtraBuffer = Math.max(0, stackBottom - baseTimelineHeight + 8);
+  const bottomBuffer = hasTimedItems ? (compactTimeline ? 44 + stackExtraBuffer : 72 + stackExtraBuffer) : 0;
   const timelineHeight = Math.max(1, baseTimelineHeight + bottomBuffer);
   grid.style.setProperty('--timeline-height', `${timelineHeight}px`);
   grid.style.setProperty('--hour-height', `${hourHeight}px`);
@@ -699,6 +814,7 @@ function renderWeek() {
       group.forEach((entry) => {
         const element = createTaskElement(entry.item);
         element.classList.add('timed-cluster-item');
+        element.style.height = `${getClusterCardHeight(entry.item.task)}px`;
         cluster.appendChild(element);
       });
       timeline.appendChild(cluster);
@@ -822,8 +938,9 @@ function layoutTimedOccurrences(occurrences) {
       groupPlacements.push({ item, lane });
     });
     const laneCount = Math.max(1, laneEnds.length);
-    const startHours = overlapGroup.items.map((item) => Math.floor(getTaskTimeBounds(item.task).start / 60));
-    const stackGroupId = overlapGroup.items.length >= 3 || new Set(startHours).size === 1 ? placements.indexOf(overlapGroup) : null;
+    // Two overlapping items stay side-by-side so both keep their real
+    // vertical duration. Only denser groups use the readable full-width stack.
+    const stackGroupId = overlapGroup.items.length >= 3 ? placements.indexOf(overlapGroup) : null;
     groupPlacements.forEach((placement) => layout.push({ ...placement, laneCount, stackGroupId }));
   });
   return layout;
@@ -965,19 +1082,9 @@ function sortOccurrences(left, right) {
 
 function completeTask(taskId, occurrenceDate, title) {
   const key = completionKey(taskId, occurrenceDate);
-  const task = state.data.tasks.find((entry) => entry.id === taskId);
-  const previousDate = task && task.date;
   state.data.completions[key] = true;
-  if (task && isRecurringTask(task)) {
-    const completedDate = parseDate(occurrenceDate);
-    if (completedDate) {
-      task.date = dateKey(addRecurringDate(completedDate, task.recurrence));
-      task.updatedAt = nowIso();
-    }
-  }
   state.lastUndo = () => {
     delete state.data.completions[key];
-    if (task && previousDate) task.date = previousDate;
     persist();
     render();
   };
@@ -1049,14 +1156,31 @@ function handleTaskSubmit(event) {
   const recurrence = String(els.taskRepeat.value || 'none');
   const volunteering = isVolunteeringTask(title);
   const editingTask = editingTaskId ? state.data.tasks.find((task) => task.id === editingTaskId) : null;
+  const startWeekValue = recurrence !== 'none' ? String(els.taskStartWeek && els.taskStartWeek.value || '').trim() : '';
+  const startWeekDate = startWeekValue ? parseDate(startWeekValue) : null;
   if (!title || (!anyDay && !date)) return;
+  if (recurrence !== 'none' && !startWeekDate) {
+    showToast('Choose a start week for this recurring task.');
+    return;
+  }
   if (!volunteering && startTime && endTime && endTime < startTime) {
     showToast('End time must be after start time');
     return;
   }
+  let firstRecurrenceDate = '';
+  if (recurrence !== 'none' && startWeekDate) {
+    if (anyDay) {
+      firstRecurrenceDate = dateKey(startOfWeek(startWeekDate));
+    } else {
+      const selectedDate = parseDate(date);
+      const weekdayOffset = selectedDate ? (selectedDate.getDay() + 6) % 7 : 0;
+      firstRecurrenceDate = dateKey(addDays(startOfWeek(startWeekDate), weekdayOffset));
+    }
+  }
+  const effectiveDate = recurrence !== 'none' && !anyDay ? firstRecurrenceDate : date;
   const updatedTask = {
     title,
-    date,
+    date: effectiveDate,
     anyDay,
     startTime: volunteering ? '14:00' : startTime,
     endTime: volunteering ? '17:00' : endTime,
@@ -1066,27 +1190,27 @@ function handleTaskSubmit(event) {
     reminder: String(els.taskReminder && els.taskReminder.value || 'day-before'),
     updatedAt: nowIso(),
   };
+  if (recurrence !== 'none') updatedTask.recurrenceStartDate = firstRecurrenceDate;
   if (anyDay && recurrence !== 'none') {
-    updatedTask.nextAnyDayDate = (editingTask && editingTask.nextAnyDayDate)
-      || (editingTask && editingTask.anyDayDate)
-      || dateKey(state.weekStart);
+    updatedTask.nextAnyDayDate = firstRecurrenceDate || dateKey(startOfWeek(state.weekStart));
   }
   if (anyDay) {
-    updatedTask.anyDayDate = (editingTask && editingTask.anyDayDate)
-      || (editingTask && editingTask.nextAnyDayDate)
-      || dateKey(state.weekStart);
+    updatedTask.anyDayDate = recurrence !== 'none'
+      ? (firstRecurrenceDate || dateKey(startOfWeek(state.weekStart)))
+      : (editingTask && editingTask.anyDayDate) || (editingTask && editingTask.nextAnyDayDate) || dateKey(state.weekStart);
   }
   if (editingTask) {
     Object.assign(editingTask, updatedTask);
     if (!anyDay || recurrence === 'none') delete editingTask.nextAnyDayDate;
     if (!anyDay) delete editingTask.anyDayDate;
+    if (recurrence === 'none') delete editingTask.recurrenceStartDate;
     if (anyDay) delete editingTask.date;
   } else {
     state.data.tasks.push({ id: createId(), ...updatedTask });
   }
   persist();
   closeDialog(els.eventDialog);
-  if (date) state.weekStart = startOfWeek(parseDate(date));
+  if (effectiveDate) state.weekStart = startOfWeek(parseDate(effectiveDate));
   render();
   showToast(editingTask ? 'Event updated' : 'Event added to the week');
 }
@@ -1108,8 +1232,15 @@ function openEventDialog(options = {}) {
   els.taskAssignee.value = task && task.assignee || 'both';
   els.taskType.value = task && task.kind || 'event';
   els.taskRepeat.value = task && task.recurrence || 'none';
+  if (els.taskStartWeek) {
+    const recurrenceAnchor = task && (task.recurrenceStartDate || task.nextAnyDayDate || task.anyDayDate || task.date);
+    els.taskStartWeek.value = recurrenceAnchor && els.taskRepeat.value !== 'none'
+      ? dateKey(startOfWeek(parseDate(recurrenceAnchor)))
+      : '';
+  }
   if (els.taskReminder) els.taskReminder.value = task && task.reminder || 'day-before';
   updateAnyDayField();
+  updateRecurrenceStartField();
   updateTimeClearButtons();
   openDialog(els.eventDialog);
   window.setTimeout(() => els.taskTitle.focus(), 30);
@@ -1137,6 +1268,28 @@ function updateAnyDayField() {
   els.taskDate.required = !anyDay;
   if (anyDay) els.taskDate.value = '';
   else if (!els.taskDate.value) els.taskDate.value = dateKey(state.weekStart);
+  updateRecurrenceStartField();
+}
+
+function updateRecurrenceStartField() {
+  if (!els.taskRepeat || !els.recurrenceStartGroup || !els.taskStartWeek) return;
+  const recurring = els.taskRepeat.value !== 'none';
+  els.recurrenceStartGroup.hidden = !recurring;
+  els.taskStartWeek.disabled = !recurring;
+  if (!recurring) {
+    els.taskStartWeek.value = '';
+    return;
+  }
+  if (!els.taskStartWeek.value) {
+    const dateValue = els.taskDate && els.taskDate.value;
+    const anchor = parseDate(dateValue) || state.weekStart || new Date();
+    els.taskStartWeek.value = dateKey(startOfWeek(anchor));
+  }
+  if (els.recurrenceStartHint) {
+    els.recurrenceStartHint.textContent = els.taskAnyDay && els.taskAnyDay.checked
+      ? 'The task becomes available from this week onward.'
+      : 'The selected weekday starts repeating from this week.';
+  }
 }
 
 function clearTimeInput(input) {
@@ -1635,6 +1788,15 @@ function normalizeTask(task) {
   normalized.anyDay = Boolean(normalized.anyDay);
   if (normalized.anyDay) {
     normalized.anyDayDate = normalized.anyDayDate || normalized.nextAnyDayDate || dateKey(startOfWeek(new Date()));
+  }
+  if (isRecurringTask(normalized)) {
+    normalized.recurrenceStartDate = normalized.recurrenceStartDate
+      || normalized.date
+      || normalized.nextAnyDayDate
+      || normalized.anyDayDate
+      || '';
+  } else {
+    delete normalized.recurrenceStartDate;
   }
   normalized.reminder = normalized.reminder || 'day-before';
   delete normalized.time;
