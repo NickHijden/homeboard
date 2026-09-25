@@ -444,7 +444,9 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .dress-decoration { top: -3px; right: 1px; font-size: 18px; }
   .language-backdrop span { font-size: 25px; }
   .side-stack { flex-basis: 220px; height: 100%; gap: 10px; overflow: hidden; }
-  .side-list-scroll { flex: 1 1 auto; gap: 10px; overflow-x: hidden; overflow-y: auto; padding-right: 2px; -webkit-overflow-scrolling: touch; }
+  /* Safari on the iPad mini needs a definite flex height before it will
+     treat this nested panel as a touch-scrollable region. */
+  .side-list-scroll { flex: 1 1 0; height: 0; gap: 10px; overflow-x: hidden; overflow-y: scroll; padding-right: 2px; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
   .side-list-scroll .list-card { flex: 0 0 auto; }
   .list-card { padding: 13px 11px 10px; }
   .list-card-heading { margin-bottom: 9px; }
