@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260925-01';
+const APP_VERSION = '20260925-03';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -1395,6 +1395,38 @@ function handleListClick(event) {
   const itemId = target.dataset.itemId;
   const item = state.data[listName].find((entry) => entry.id === itemId);
   if (!item) return;
+  if (target.dataset.listAction === 'edit') {
+    const editedTitle = window.prompt('Edit item', item.title);
+    if (editedTitle === null) return;
+    const nextTitle = editedTitle.trim();
+    if (!nextTitle) {
+      showToast('The item name cannot be empty');
+      return;
+    }
+    const currentPriority = Number(item.priority) === 1 || Number(item.priority) === 2 ? Number(item.priority) : null;
+    let nextPriority = currentPriority;
+    if (listName === 'todos') {
+      const priorityInput = window.prompt('Priority: enter 1 for most important, 2 for second, or leave blank for no color', currentPriority ? String(currentPriority) : '');
+      if (priorityInput === null) return;
+      const priorityValue = priorityInput.trim();
+      if (priorityValue && priorityValue !== '1' && priorityValue !== '2') {
+        showToast('Priority must be 1, 2, or blank');
+        return;
+      }
+      nextPriority = priorityValue ? Number(priorityValue) : null;
+    }
+    if (nextTitle === item.title && nextPriority === currentPriority) return;
+    item.title = nextTitle;
+    if (listName === 'todos') {
+      if (nextPriority) item.priority = nextPriority;
+      else delete item.priority;
+    }
+    item.updatedAt = nowIso();
+    persist();
+    render();
+    showToast('Item updated');
+    return;
+  }
   if (target.dataset.listAction === 'toggle') {
     item.completed = !item.completed;
     item.updatedAt = nowIso();
@@ -1430,12 +1462,25 @@ function renderList(listName, container, countElement, emptyMessage) {
     container.innerHTML = `<p class="empty-list">${emptyMessage}</p>`;
     return;
   }
-  items.forEach((item) => {
+  const orderedItems = listName === 'todos'
+    ? items.slice().sort((a, b) => {
+      const aCompleted = a.completed ? 1 : 0;
+      const bCompleted = b.completed ? 1 : 0;
+      if (aCompleted !== bCompleted) return aCompleted - bCompleted;
+      const aPriority = Number(a.priority) === 1 || Number(a.priority) === 2 ? Number(a.priority) : 3;
+      const bPriority = Number(b.priority) === 1 || Number(b.priority) === 2 ? Number(b.priority) : 3;
+      return aPriority - bPriority;
+    })
+    : items;
+  orderedItems.forEach((item) => {
     const row = document.createElement('div');
-    row.className = `list-row${item.completed ? ' done' : ''}`;
+    const priority = Number(item.priority) === 1 || Number(item.priority) === 2 ? Number(item.priority) : null;
+    row.className = `list-row${item.completed ? ' done' : ''}${priority ? ` priority-${priority}` : ''}`;
     row.innerHTML = `
       <input class="list-check" type="checkbox" ${item.completed ? 'checked' : ''} data-list-action="toggle" data-list-name="${listName}" data-item-id="${escapeAttribute(item.id)}" aria-label="Mark ${escapeAttribute(item.title)} done" />
+      ${priority ? `<span class="list-priority" aria-label="Priority ${priority}">${priority}</span>` : ''}
       <span class="list-row-text">${escapeHtml(item.title)}</span>
+      <button class="edit-row" type="button" data-list-action="edit" data-list-name="${listName}" data-item-id="${escapeAttribute(item.id)}" aria-label="Edit ${escapeAttribute(item.title)}">✎</button>
       <button class="delete-row" type="button" data-list-action="delete" data-list-name="${listName}" data-item-id="${escapeAttribute(item.id)}" aria-label="Delete ${escapeAttribute(item.title)}">×</button>
     `;
     container.appendChild(row);
@@ -1866,6 +1911,9 @@ function normalizeListItem(item) {
   normalized.id = normalized.id || createId();
   normalized.title = String(normalized.title || '').trim();
   normalized.completed = Boolean(normalized.completed);
+  const priority = Number(normalized.priority);
+  if (priority === 1 || priority === 2) normalized.priority = priority;
+  else delete normalized.priority;
   return normalized;
 }
 
