@@ -18,6 +18,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
+            <p class="app-version">Version 20260925-04</p>
           </div>
         </div>
 
@@ -53,7 +54,8 @@
         </section>
 
         <aside class="side-stack" aria-label="Household lists">
-          <section class="list-card card-surface todo-card" aria-labelledby="todoHeading">
+          <div class="side-list-scroll">
+            <section class="list-card card-surface todo-card" aria-labelledby="todoHeading">
             <div class="list-card-heading">
               <div>
                 <p class="eyebrow">SMALL WINS</p>
@@ -70,9 +72,9 @@
             <div class="list-card-footer">
               <button class="subtle-button" id="clearTodosButton" type="button">Clear completed</button>
             </div>
-          </section>
+            </section>
 
-          <section class="list-card card-surface grocery-card" aria-labelledby="groceryHeading">
+            <section class="list-card card-surface grocery-card" aria-labelledby="groceryHeading">
             <div class="list-card-heading">
               <div>
                 <p class="eyebrow">NEXT SHOP</p>
@@ -89,7 +91,8 @@
             <div class="list-card-footer">
               <button class="subtle-button" id="clearGroceriesButton" type="button">Clear completed</button>
             </div>
-          </section>
+            </section>
+          </div>
 
           <div class="save-status" id="saveStatus"><span class="status-dot"></span> Saved on this tablet</div>
         </aside>
@@ -289,6 +292,6 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260925-03" defer></script>
+    <script src="app.js?v=20260925-04" defer></script>
   </body>
 </html>

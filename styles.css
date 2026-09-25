@@ -60,6 +60,7 @@ h1, h2, p { margin-top: 0; }
 h1, h2 { font-family: 'Space Grotesk', 'DM Sans', sans-serif; }
 h1 { margin-bottom: 0; font-size: 25px; font-weight: 700; letter-spacing: -.035em; }
 .cleaning-motto { margin: 3px 0 0; color: #a0a4af; font-size: 10px; font-style: italic; line-height: 1.25; }
+.app-version { margin: 4px 0 0; color: #b4b7c2; font-size: 8px; letter-spacing: .04em; line-height: 1.2; }
 h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035em; }
 .muted { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
 
@@ -198,7 +199,8 @@ h2 { margin-bottom: 0; font-size: 20px; line-height: 1.1; letter-spacing: -.035e
 .task-item.expiry .assignee-chip { background: rgba(255,255,255,.72); }
 .recurrence-icon { color: #aaadb8; }
 
-.side-stack { display: flex; flex: 0 0 335px; flex-direction: column; gap: 18px; }
+.side-stack { display: flex; flex: 0 0 335px; min-height: 0; flex-direction: column; gap: 18px; }
+.side-list-scroll { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 18px; }
 .list-card { padding: 23px 21px 16px; }
 .list-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 17px; }
 .count-pill { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 7px; border-radius: 8px; background: var(--violet-soft); color: var(--violet); font-size: 11px; font-weight: 700; }
@@ -325,7 +327,8 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 @media (max-width: 850px) {
   .dashboard-grid { display: block; }
   .side-stack { display: flex; flex-direction: row; flex-wrap: wrap; margin-top: 16px; }
-  .side-stack .list-card { flex: 1 1 280px; }
+  .side-list-scroll { flex: 1 1 100%; flex-direction: row; flex-wrap: wrap; gap: 16px; overflow: visible; }
+  .side-list-scroll .list-card { flex: 1 1 280px; }
   .save-status { grid-column: 1 / -1; }
   .topbar .any-day-board { order: 3; flex-basis: 100%; }
 }
@@ -441,6 +444,8 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   .dress-decoration { top: -3px; right: 1px; font-size: 18px; }
   .language-backdrop span { font-size: 25px; }
   .side-stack { flex-basis: 220px; height: 100%; gap: 10px; overflow: hidden; }
+  .side-list-scroll { flex: 1 1 auto; gap: 10px; overflow-x: hidden; overflow-y: auto; padding-right: 2px; -webkit-overflow-scrolling: touch; }
+  .side-list-scroll .list-card { flex: 0 0 auto; }
   .list-card { padding: 13px 11px 10px; }
   .list-card-heading { margin-bottom: 9px; }
   .list-card-heading h2 { font-size: 17px; }
