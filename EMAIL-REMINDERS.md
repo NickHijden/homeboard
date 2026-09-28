@@ -1,6 +1,6 @@
 # Homeboard email reminders
 
-The web app stores each event's reminder preference as `day-before` by default. Existing events without this field also use the day-before default. The reminder function checks tomorrow's open events at 09:00 Europe/Amsterdam and sends one friendly email per event to the configured household addresses. On Monday at the same hour it also sends one summary email containing unfinished recurring tasks from the previous week, including tasks with a fixed weekday and tasks without a fixed day.
+The web app stores each event's reminder preference as `day-before` by default. Existing events without this field also use the day-before default. The reminder function checks tomorrow's open events at 09:00 Europe/Amsterdam and sends one friendly email per event to the configured household addresses. On Monday from 09:00 onward it can also catch up with one summary email containing unfinished recurring tasks from the previous week, including tasks with a fixed weekday and tasks without a fixed day.
 
 ## One-time setup
 

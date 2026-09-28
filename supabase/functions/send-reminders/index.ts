@@ -53,9 +53,9 @@ Deno.serve(async (request) => {
   const localNow = getLocalParts(new Date());
   const tomorrow = addDays(localNow.date, 1);
   const isMondayOverdueRun = localNow.weekday === 'Mon'
-    && localNow.hour === OVERDUE_REMINDER_HOUR
-    && localNow.minute < 15;
-  if (!isTestRun && !isMondayOverdueRun && (localNow.hour !== REMINDER_HOUR || localNow.minute >= 15)) {
+    && localNow.hour >= OVERDUE_REMINDER_HOUR;
+  const isRegularReminderWindow = localNow.hour === REMINDER_HOUR && localNow.minute < 15;
+  if (!isTestRun && !isMondayOverdueRun && !isRegularReminderWindow) {
     return json({ skipped: true, reason: 'Outside reminder window', localNow });
   }
   if (!BREVO_API_KEY || !FROM_EMAIL || !RECIPIENTS.length) {
@@ -106,6 +106,15 @@ Deno.serve(async (request) => {
     for (const task of Array.isArray(data.tasks) ? data.tasks : []) {
       if (!task || !task.id || task.reminder === 'none') continue;
       if (!isDueOn(task, tomorrow) || data.completions?.[`${task.id}::${tomorrow}`]) continue;
+      const { data: existingClaims, error: existingClaimError } = await admin
+        .from('homeboard_reminder_log')
+        .select('task_id')
+        .eq('planner_id', document.id)
+        .eq('task_id', String(task.id))
+        .eq('occurrence_date', tomorrow)
+        .limit(1);
+      if (existingClaimError) return json({ error: existingClaimError.message }, 500);
+      if (existingClaims && existingClaims.length) continue;
       considered += 1;
 
       const message = createMessage(task, tomorrow);
