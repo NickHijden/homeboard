@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260925-05';
+const APP_VERSION = '20260928-01';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -1035,8 +1035,19 @@ function getRecurringAnchorDate(task) {
 
 function rollOverdueRecurringTasks() {
   const currentWeekStart = startOfWeek(new Date());
-  const currentWeekKey = dateKey(currentWeekStart);
   let changed = false;
+
+  if (typeof window !== 'undefined' && window.HomeboardRecurrence && typeof window.HomeboardRecurrence.rollOverdueTask === 'function') {
+    state.data.tasks.forEach((task) => {
+      if (!window.HomeboardRecurrence.rollOverdueTask(task, currentWeekStart, isCompleted)) return;
+      task.updatedAt = nowIso();
+      changed = true;
+    });
+    if (changed) persist();
+    return;
+  }
+
+  const currentWeekKey = dateKey(currentWeekStart);
 
   state.data.tasks.forEach((task) => {
     if (!isRecurringTask(task)) return;

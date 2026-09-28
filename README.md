@@ -21,6 +21,14 @@ To preview it on an iPad connected to the same Wi-Fi as the computer, run `node 
 
 For the installable/offline PWA behavior, serve this folder from an HTTPS host (or a local development server) and use the browser's “Add to home screen” option on the tablet.
 
+## Run the recurrence tests
+
+The recurrence rollover rules have regression tests for weekly, biweekly, monthly, quarterly, and no-fixed-day tasks:
+
+```text
+node --test tests/recurrence.test.cjs
+```
+
 ## Optional phone/tablet cloud sync
 
 Homeboard remains local-first, but it can also sync through Supabase. Create a free Supabase project, run [`supabase-setup.sql`](supabase-setup.sql) once in its SQL Editor, then enter the project URL and publishable key in Homeboard Settings. Use the same Homeboard email and password on each device. The app keeps local saving enabled and merges new items before uploading them.

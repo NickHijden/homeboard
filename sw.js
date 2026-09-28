@@ -1,9 +1,10 @@
-const APP_VERSION = '20260925-05';
+const APP_VERSION = '20260928-01';
 const CACHE_NAME = `homeboard-shell-${APP_VERSION}`;
 const SHELL = [
   './',
   './index.html',
   `./styles.css?v=${APP_VERSION}`,
+  `./recurrence.js?v=${APP_VERSION}`,
   `./app.js?v=${APP_VERSION}`,
   './assets/homeboard-banner.png',
   './manifest.webmanifest',
