@@ -1,6 +1,6 @@
 # Homeboard email reminders
 
-The web app stores each event's reminder preference as `day-before` by default. Existing events without this field also use the day-before default. The reminder function checks tomorrow's open events at 09:00 Europe/Amsterdam and sends one friendly email per event to the configured household addresses. On Monday at the same hour it also sends one summary email containing unfinished recurring no-fixed-day tasks from the previous week.
+The web app stores each event's reminder preference as `day-before` by default. Existing events without this field also use the day-before default. The reminder function checks tomorrow's open events at 09:00 Europe/Amsterdam and sends one friendly email per event to the configured household addresses. On Monday at the same hour it also sends one summary email containing unfinished recurring tasks from the previous week, including tasks with a fixed weekday and tasks without a fixed day.
 
 ## One-time setup
 
@@ -29,4 +29,11 @@ In the Supabase Edge Function tester, send a `POST` request to `send-reminders` 
 - `Authorization`: `Bearer ` followed by your Supabase publishable key
 - `x-homeboard-test-secret`: the same private value as `HOMEBOARD_CRON_SECRET`
 
-Use `{}` as the request body. The response should say `testSent: true`, and each configured address should receive a test email immediately. This test does not create a planner event or a reminder-log entry.
+To test a specific reminder, add `x-homeboard-test-kind` with one of these values:
+
+- `connection` — basic delivery test (default)
+- `event` — a realistic day-before event reminder
+- `overdue` — a realistic Monday unfinished-task summary
+- `all` — sends all three test messages
+
+Use `{}` as the request body. The response should say `testSent: true`, and each configured address should receive the selected test email immediately. These tests do not create a planner event or a reminder-log entry.

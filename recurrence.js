@@ -118,6 +118,7 @@
     const weekdayOffset = (dueDate.getDay() + 6) % 7;
     const movedDate = addDays(weekStart, weekdayOffset);
     const movedKey = dateKey(movedDate);
+    task.lastMissedDate = dateKey(dueDate);
     if (task.date !== movedKey) {
       task.date = movedKey;
       changed = true;

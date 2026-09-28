@@ -38,18 +38,20 @@ const SIGN_OFFS = [
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-homeboard-cron-secret, x-homeboard-test-secret',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-homeboard-cron-secret, x-homeboard-test-secret, x-homeboard-test-kind',
 };
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const isTestRun = request.headers.get('x-homeboard-test-secret') === CRON_SECRET && Boolean(CRON_SECRET);
   const isScheduledRun = request.headers.get('x-homeboard-cron-secret') === CRON_SECRET && Boolean(CRON_SECRET);
+  const testKind = request.headers.get('x-homeboard-test-kind') || 'connection';
   if (!isTestRun && !isScheduledRun) {
     return json({ error: 'Unauthorized' }, 401);
   }
 
   const localNow = getLocalParts(new Date());
+  const tomorrow = addDays(localNow.date, 1);
   const isMondayOverdueRun = localNow.weekday === 'Mon'
     && localNow.hour === OVERDUE_REMINDER_HOUR
     && localNow.minute < 15;
@@ -61,25 +63,41 @@ Deno.serve(async (request) => {
   }
 
   if (isTestRun) {
-    const testMessage = {
-      subject: 'Homeboard test — your reminders are connected 💌',
-      text: 'Hey Stephany,\n\nThis is a test email from Homeboard. If you received it, tomorrow\'s reminders can reach the household inboxes. Nick loves you. 💛\n\nHomeboard',
-      html: '<div style="font-family:Arial,sans-serif;line-height:1.6;color:#292d38"><p>Hey Stephany,</p><p>This is a test email from Homeboard. If you received it, tomorrow’s reminders can reach the household inboxes.</p><p>Nick loves you. 💛</p><p>Homeboard</p></div>',
-    };
-    for (const recipient of RECIPIENTS) await sendEmail(testMessage, recipient);
-    return json({ testSent: true, recipients: RECIPIENTS.length, timeZone: TIME_ZONE });
+    const previousSunday = addDays(localNow.date, -1);
+    const previousMonday = addDays(localNow.date, -7);
+    const testMessages = [] as Array<{ subject: string; text: string; html: string }>;
+    if (testKind === 'connection' || testKind === 'all') {
+      testMessages.push({
+        subject: 'Homeboard test — your reminders are connected 💌',
+        text: 'Hey Stephany,\n\nThis is a test email from Homeboard. If you received it, tomorrow\'s reminders can reach the household inboxes. Nick loves you. 💛\n\nHomeboard',
+        html: '<div style="font-family:Arial,sans-serif;line-height:1.6;color:#292d38"><p>Hey Stephany,</p><p>This is a test email from Homeboard. If you received it, tomorrow’s reminders can reach the household inboxes.</p><p>Nick loves you. 💛</p><p>Homeboard</p></div>',
+      });
+    }
+    if (testKind === 'event' || testKind === 'all') {
+      testMessages.push(createMessage({ id: 'homeboard-test-event', title: 'Test event reminder', date: tomorrow, startTime: '18:00', endTime: '19:30', recurrence: 'none' }, tomorrow));
+    }
+    if (testKind === 'overdue' || testKind === 'all') {
+      testMessages.push(createOverdueMessage([
+        { id: 'homeboard-test-overdue-1', title: 'Test unfinished task', assignee: 'me' },
+        { id: 'homeboard-test-overdue-2', title: 'Test unfinished task for Stephany', assignee: 'partner' },
+      ], previousMonday, previousSunday));
+    }
+    if (!testMessages.length) return json({ error: 'Unknown test kind. Use connection, event, overdue, or all.' }, 400);
+    for (const message of testMessages) {
+      for (const recipient of RECIPIENTS) await sendEmail(message, recipient);
+    }
+    return json({ testSent: true, testKind, messages: testMessages.length, recipients: RECIPIENTS.length, timeZone: TIME_ZONE });
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
   if (!supabaseUrl || !serviceRoleKey) return json({ error: 'Supabase service credentials are missing' }, 500);
   const admin = createClient(supabaseUrl, serviceRoleKey);
-  const tomorrow = addDays(localNow.date, 1);
   const { data: documents, error } = await admin.from('planner_documents').select('id,data');
   if (error) return json({ error: error.message }, 500);
 
   const overdueSent = isMondayOverdueRun
-    ? await sendOverdueAnyDayReminders(admin, documents || [], localNow.date)
+    ? await sendOverdueReminders(admin, documents || [], localNow.date)
     : 0;
   let sent = 0;
   let considered = 0;
@@ -104,15 +122,17 @@ Deno.serve(async (request) => {
   return json({ sent, considered, overdueSent, date: tomorrow, timeZone: TIME_ZONE });
 });
 
-async function sendOverdueAnyDayReminders(admin: ReturnType<typeof createClient>, documents: Array<Record<string, unknown>>, monday: string) {
+async function sendOverdueReminders(admin: ReturnType<typeof createClient>, documents: Array<Record<string, unknown>>, monday: string) {
   const previousSunday = addDays(monday, -1);
   const previousMonday = addDays(monday, -7);
   let sentTasks = 0;
   for (const document of documents) {
     const data = (document.data || {}) as Record<string, unknown>;
     const tasks = Array.isArray(data.tasks) ? data.tasks as Array<Record<string, unknown>> : [];
+    const completions = (data.completions || {}) as Record<string, unknown>;
     const candidates = tasks.map((task) => {
-      const occurrenceDate = getOverdueAnyDayDate(task, previousMonday, previousSunday);
+      const occurrenceDate = getOverdueOccurrenceDate(task, previousMonday, previousSunday);
+      if (occurrenceDate && completions[`${String(task.id)}::${occurrenceDate}`]) return null;
       return occurrenceDate ? { task, occurrenceDate } : null;
     }).filter((candidate): candidate is { task: Record<string, unknown>; occurrenceDate: string } => Boolean(candidate));
     if (!candidates.length) continue;
@@ -145,11 +165,25 @@ async function sendOverdueAnyDayReminders(admin: ReturnType<typeof createClient>
 
 function getOverdueAnyDayDate(task: Record<string, unknown>, previousMonday: string, previousSunday: string) {
   if (!task.anyDay || task.anyDayCompleted || task.reminder === 'none') return null;
-  if (!['weekly', 'biweekly', 'monthly', 'quarterly'].includes(String(task.recurrence || ''))) return null;
+  const recurrence = String(task.recurrence || '');
+  if (!['weekly', 'biweekly', 'monthly', 'quarterly'].includes(recurrence)) return null;
   const lastMissed = String(task.lastMissedAnyDayDate || '');
   if (lastMissed >= previousMonday && lastMissed <= previousSunday) return lastMissed;
   const nextDue = String(task.nextAnyDayDate || task.anyDayDate || '');
-  if (nextDue && nextDue <= previousSunday) return nextDue;
+  if (nextDue >= previousMonday && nextDue <= previousSunday) return nextDue;
+  return null;
+}
+
+function getOverdueOccurrenceDate(task: Record<string, unknown>, previousMonday: string, previousSunday: string) {
+  if (task.reminder === 'none') return null;
+  if (task.anyDay) return getOverdueAnyDayDate(task, previousMonday, previousSunday);
+  if (!['weekly', 'biweekly', 'monthly', 'quarterly'].includes(String(task.recurrence || ''))) return null;
+  const rememberedMiss = String(task.lastMissedDate || '');
+  if (rememberedMiss >= previousMonday && rememberedMiss <= previousSunday) return rememberedMiss;
+  for (let offset = 0; offset < 7; offset += 1) {
+    const occurrenceDate = addDays(previousMonday, offset);
+    if (isDueOn(task, occurrenceDate)) return occurrenceDate;
+  }
   return null;
 }
 
@@ -233,7 +267,7 @@ function createMessage(task: Record<string, unknown>, date: string) {
 }
 
 function isDueOn(task: Record<string, unknown>, target: string) {
-  const anchor = parseDateKey(String(task.date || ''));
+  const anchor = parseDateKey(String(task.recurrenceStartDate || task.date || ''));
   if (!anchor) return false;
   const targetDate = parseDateKey(target);
   if (!targetDate || dateNumber(targetDate) < dateNumber(anchor)) return false;
