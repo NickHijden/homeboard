@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20260930-02" />
+    <link rel="stylesheet" href="styles.css?v=20260930-03" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -18,7 +18,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20260930-02</p>
+            <p class="app-version">Version 20260930-03</p>
           </div>
         </div>
 
@@ -287,12 +287,31 @@
       </form>
     </dialog>
 
+    <dialog class="backup-dialog" id="backupDialog" aria-labelledby="backupTitle">
+      <form class="task-form backup-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">SAFARI BACKUP</p>
+            <h2 id="backupTitle">Copy your backup</h2>
+          </div>
+          <button class="close-button" id="closeBackupButton" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="settings-copy">This older iPad cannot download a <code>blob:</code> file directly. Tap <strong>Copy backup text</strong>, then paste it into a text file on your laptop and save it with a <code>.json</code> ending.</p>
+        <textarea class="backup-text" id="backupText" readonly aria-label="Homeboard backup JSON"></textarea>
+        <p class="sync-status" id="backupStatus" aria-live="polite">The backup text is ready to copy.</p>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="closeBackupButtonAlt" type="button">Close</button>
+          <button class="primary-button" id="copyBackupButton" type="button">Copy backup text</button>
+        </div>
+      </form>
+    </dialog>
+
     <!-- Invisible legacy elements prevent an older cached script from stopping at startup. -->
     <button id="installButton" type="button" hidden aria-hidden="true">Install</button>
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20260930-02" defer></script>
-    <script src="app.js?v=20260930-02" defer></script>
+    <script src="recurrence.js?v=20260930-03" defer></script>
+    <script src="app.js?v=20260930-03" defer></script>
   </body>
 </html>

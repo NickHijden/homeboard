@@ -8,7 +8,7 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260930-02';
+const APP_VERSION = '20260930-03';
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -121,6 +121,12 @@ const els = {
   settingsForm: document.querySelector('#settingsForm'),
   exportButton: document.querySelector('#exportButton'),
   importInput: document.querySelector('#importInput'),
+  backupDialog: document.querySelector('#backupDialog'),
+  backupText: document.querySelector('#backupText'),
+  backupStatus: document.querySelector('#backupStatus'),
+  closeBackupButton: document.querySelector('#closeBackupButton'),
+  closeBackupButtonAlt: document.querySelector('#closeBackupButtonAlt'),
+  copyBackupButton: document.querySelector('#copyBackupButton'),
   syncProjectUrl: document.querySelector('#syncProjectUrl'),
   syncPublishableKey: document.querySelector('#syncPublishableKey'),
   syncEmail: document.querySelector('#syncEmail'),
@@ -236,6 +242,12 @@ function bindEvents() {
   els.settingsForm.addEventListener('submit', (event) => event.preventDefault());
   els.exportButton.addEventListener('click', exportBackup);
   els.importInput.addEventListener('change', importBackup);
+  if (els.closeBackupButton) els.closeBackupButton.addEventListener('click', () => closeDialog(els.backupDialog));
+  if (els.closeBackupButtonAlt) els.closeBackupButtonAlt.addEventListener('click', () => closeDialog(els.backupDialog));
+  if (els.copyBackupButton) els.copyBackupButton.addEventListener('click', copyBackupText);
+  if (els.backupDialog) els.backupDialog.addEventListener('click', (event) => {
+    if (event.target === els.backupDialog) closeDialog(els.backupDialog);
+  });
   if (els.saveSyncConfigButton) els.saveSyncConfigButton.addEventListener('click', saveSyncConfig);
   if (els.syncSignInButton) els.syncSignInButton.addEventListener('click', () => signIn(false));
   if (els.syncSignUpButton) els.syncSignUpButton.addEventListener('click', () => signIn(true));
@@ -1543,14 +1555,48 @@ function showToast(message, actionLabel = '') {
 }
 
 function exportBackup() {
-  const blob = new Blob([JSON.stringify(state.data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
+  const backupText = JSON.stringify(state.data, null, 2);
+  // iOS 12 Safari can navigate to a blob URL but cannot reliably open the
+  // resulting resource. Show a copyable fallback instead of leaving the user
+  // on Safari's "WebKitBlobResource error" page.
+  const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent || '')
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const link = document.createElement('a');
+  if (isIOS || !('download' in link)) {
+    openBackupFallback(backupText);
+    return;
+  }
+  const blob = new Blob([backupText], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
   link.href = url;
   link.download = `homeboard-backup-${dateKey(new Date())}.json`;
   link.click();
   URL.revokeObjectURL(url);
   showToast('Backup downloaded');
+}
+
+function openBackupFallback(backupText) {
+  if (!els.backupDialog || !els.backupText) {
+    showToast('This iPad cannot download backups directly. Use a laptop to download one.');
+    return;
+  }
+  els.backupText.value = backupText;
+  if (els.backupStatus) els.backupStatus.textContent = 'The backup text is ready to copy.';
+  openDialog(els.backupDialog);
+}
+
+function copyBackupText() {
+  if (!els.backupText) return;
+  els.backupText.focus();
+  els.backupText.select();
+  let copied = false;
+  try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
+  if (copied) {
+    if (els.backupStatus) els.backupStatus.textContent = 'Copied. Paste it into a .json file on your laptop.';
+    showToast('Backup copied');
+  } else if (els.backupStatus) {
+    els.backupStatus.textContent = 'Please press and hold the selected text, then choose Copy.';
+  }
 }
 
 function importBackup(event) {
