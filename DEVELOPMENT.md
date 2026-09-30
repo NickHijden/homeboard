@@ -25,7 +25,7 @@ node preview-server.cjs
 
 Open the printed local address in a private browser window. Configure the development Supabase connection only in that private window.
 
-For iPad testing when the local laptop address is blocked by a managed network, use the public staging path instead. Configure only the Homeboard Development Supabase URL and publishable key there; never enter the production connection on that path.
+For iPad testing when the local laptop address is blocked by a managed network, use the public staging path instead. Configure only the Homeboard Development Supabase URL and publishable key there; never enter the production connection on that path. Staging uses separate browser-storage names from production.
 
 ## Pre-release checks
 

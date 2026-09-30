@@ -1,18 +1,23 @@
-// Keep this key stable: changing it would make a Home Screen installation
-// look empty even though the old events still exist in Safari's storage.
-const STORAGE_KEY = 'homeboard-household-planner-v1';
-const BACKUP_STORAGE_KEY = 'homeboard-household-planner-last-known-good-v1';
-const IDB_NAME = 'homeboard-household-planner-storage';
-const IDB_STORE = 'planner-data';
-const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
-const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
-const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
-const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260930-05-staging';
-const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
+// Keep the production keys stable. The public staging path has a separate
+// namespace because GitHub Pages paths share the same browser origin.
 const IS_STAGING_HOST = isStagingHost();
+const STORAGE_NAMESPACE = IS_STAGING_HOST ? '-staging' : '';
+const STORAGE_KEY = `homeboard-household-planner-v1${STORAGE_NAMESPACE}`;
+const BACKUP_STORAGE_KEY = `homeboard-household-planner-last-known-good-v1${STORAGE_NAMESPACE}`;
+const IDB_NAME = `homeboard-household-planner-storage${STORAGE_NAMESPACE}`;
+const IDB_STORE = 'planner-data';
+const SYNC_CONFIG_KEY = `homeboard-sync-config-v1${STORAGE_NAMESPACE}`;
+const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
+const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
+const SYNC_POLL_MS = 15000;
+const APP_VERSION = '20260930-06-staging';
+const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
-const LEGACY_STORAGE_KEYS = [
+const LEGACY_STORAGE_KEYS = IS_STAGING_HOST ? [
+  'homeboard-household-planner-v2-staging',
+  'homeboard-planner-data-staging',
+  'homeboard-data-staging',
+] : [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
   'homeboard-data',
