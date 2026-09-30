@@ -1,4 +1,4 @@
-const APP_VERSION = '20260930-05';
+const APP_VERSION = '20260930-05-staging';
 const IS_STAGING = self.location.pathname === '/homeboard/dev' || self.location.pathname.startsWith('/homeboard/dev/');
 const CACHE_NAME = `${IS_STAGING ? 'homeboard-staging-shell' : 'homeboard-shell'}-${APP_VERSION}`;
 const SHELL = [

@@ -3,13 +3,13 @@
 Homeboard has two environments:
 
 - **Production**: the public GitHub Pages site and the original Supabase project. It contains the real household data.
-- **Development**: the local preview (`http://localhost:4173` or the local Wi-Fi address) and the separate **Homeboard Development** Supabase project. It must contain synthetic data only.
+- **Development**: the local preview (`http://localhost:4173` or the local Wi-Fi address), or the public staging path (`https://nickhijden.github.io/homeboard/dev/`), and the separate **Homeboard Development** Supabase project. It must contain synthetic data only.
 
 ## Development rules
 
 1. Use the local preview for development work.
 2. Use only the Homeboard Development Supabase URL and publishable key in the local preview.
-3. The local preview displays `DEVELOPMENT · LOCAL ONLY` and blocks the known production Supabase URL.
+3. Local previews display `DEVELOPMENT · LOCAL ONLY`; the public staging path displays `DEVELOPMENT · STAGING`. Both block the known production Supabase URL.
 4. Never put service-role keys, Brevo keys, database passwords, or private exports in this repository.
 5. Do not add production reminder secrets or a production cron job to the development project.
 6. Use separate test accounts and synthetic households for development.
@@ -24,6 +24,8 @@ node preview-server.cjs
 ```
 
 Open the printed local address in a private browser window. Configure the development Supabase connection only in that private window.
+
+For iPad testing when the local laptop address is blocked by a managed network, use the public staging path instead. Configure only the Homeboard Development Supabase URL and publishable key there; never enter the production connection on that path.
 
 ## Pre-release checks
 
