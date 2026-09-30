@@ -8,7 +8,9 @@ const SYNC_CONFIG_KEY = 'homeboard-sync-config-v1';
 const SYNC_SESSION_KEY = 'homeboard-sync-session-v1';
 const SYNC_EMAIL_KEY = 'homeboard-sync-email-v1';
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260930-03';
+const APP_VERSION = '20260930-04';
+const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
+const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const LEGACY_STORAGE_KEYS = [
   'homeboard-household-planner-v2',
   'homeboard-planner-data',
@@ -114,6 +116,7 @@ const els = {
   groceryCount: document.querySelector('#groceryCount'),
   clearGroceriesButton: document.querySelector('#clearGroceriesButton'),
   saveStatus: document.querySelector('#saveStatus'),
+  environmentBadge: document.querySelector('#environmentBadge'),
   toast: document.querySelector('#toast'),
   settingsButton: document.querySelector('#settingsButton'),
   settingsDialog: document.querySelector('#settingsDialog'),
@@ -153,6 +156,7 @@ const els = {
 const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const shortWeekdayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
+initializeEnvironment();
 populateDaySettingHourOptions();
 if (applyDataMigrations()) persist();
 render();
@@ -266,6 +270,22 @@ function bindEvents() {
     }
     if (syncState.session) syncNow(false);
   });
+}
+
+function isDevelopmentHost() {
+  const host = String(window.location.hostname || '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || window.location.port === '4173';
+}
+
+function isKnownProductionUrl(url) {
+  return String(url || '').replace(/\/$/, '').toLowerCase() === PRODUCTION_SUPABASE_URL;
+}
+
+function initializeEnvironment() {
+  if (!els.environmentBadge || !IS_DEVELOPMENT_HOST) return;
+  els.environmentBadge.hidden = false;
+  els.environmentBadge.textContent = 'DEVELOPMENT · LOCAL ONLY';
+  els.environmentBadge.title = 'This preview is isolated from the production Supabase project.';
 }
 
 function render() {
@@ -1631,7 +1651,11 @@ function importBackup(event) {
 function loadSyncConfig() {
   try {
     const stored = JSON.parse(localStorage.getItem(SYNC_CONFIG_KEY));
-    if (stored && stored.url && stored.key) return { url: String(stored.url), key: String(stored.key) };
+    if (stored && stored.url && stored.key) {
+      const url = String(stored.url).replace(/\/$/, '');
+      if (IS_DEVELOPMENT_HOST && isKnownProductionUrl(url)) return { url: '', key: '' };
+      return { url, key: String(stored.key) };
+    }
   } catch (error) {
     // Fall back to local-only mode.
   }
@@ -1672,6 +1696,10 @@ function saveSyncConfig() {
   const key = String(els.syncPublishableKey.value || '').trim();
   if (!/^https:\/\//i.test(url) || !key) {
     setSyncStatus('Enter the HTTPS project URL and publishable key.', 'error');
+    return;
+  }
+  if (IS_DEVELOPMENT_HOST && isKnownProductionUrl(url)) {
+    setSyncStatus('This local development preview cannot connect to the production project. Use Homeboard Development.', 'error');
     return;
   }
   const connectionChanged = syncState.config.url !== url || syncState.config.key !== key;
