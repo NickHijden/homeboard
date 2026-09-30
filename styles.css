@@ -362,6 +362,79 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
 
+/* Laptop/desktop: let the timeline follow its compact header instead of
+   stretching the header row to consume the planner card's spare height. */
+@media (min-width: 851px) {
+  .week-grid { grid-template-rows: 68px var(--timeline-height); min-height: 0; }
+  .week-grid-wrapper { height: auto; }
+}
+
+/* Phone landscape: keep the calendar as the main, vertically scrollable
+   surface. The list column stays below it, so scrolling the calendar never
+   hides the to-do or grocery lists in a second nested scroll area. */
+@media (max-width: 759px) and (orientation: landscape) {
+  :root { --calendar-hour-height: 26px; }
+  html, body { height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+  .app-shell { width: calc(100% - 18px); padding: 10px 0 26px; }
+  .topbar { align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+  .brand-lockup { gap: 8px; }
+  .brand-mark { width: 34px; height: 34px; padding: 8px 7px; border-radius: 10px; }
+  h1 { font-size: 20px; }
+  .cleaning-motto { font-size: 8px; }
+  .app-version { font-size: 7px; }
+  .topbar .any-day-board { order: initial; flex: 1 1 auto; flex-basis: auto; min-width: 0; }
+  .topbar-actions { gap: 4px; }
+  .topbar-actions .icon-button { display: none; }
+  .topbar-actions .secondary-button { min-height: 34px; padding: 0 7px; font-size: 9px; }
+  .topbar-actions .primary-button { min-height: 34px; padding: 0 9px; font-size: 10px; }
+  .dashboard-grid { display: block; }
+  .planner-card { min-height: 0; padding: 12px; overflow: visible; }
+  .planner-toolbar { display: flex; align-items: flex-start; gap: 8px; }
+  .planner-toolbar .week-banner { flex: 0 1 150px; width: 150px; height: 44px; margin-top: 0; }
+  .planner-toolbar .text-button { margin-top: 0; padding: 6px 4px; font-size: 9px; }
+  .week-title-row { gap: 4px; }
+  .week-title-row h2 { font-size: 19px; }
+  .muted { margin-top: 3px; font-size: 9px; }
+  .week-summary { min-height: 26px; margin: 8px 0; padding: 5px 8px; font-size: 9px; }
+  .topbar .any-day-label { flex-basis: 32px; font-size: 7px; }
+  .topbar .any-day-items { gap: 2px; }
+  .topbar .any-day-task { flex-basis: 108px; min-width: 88px; height: 24px; min-height: 24px; padding: 3px; }
+  .topbar .any-day-task .task-title { font-size: 7px; }
+  .topbar .any-day-task .task-meta { display: none; }
+  #weekGrid { min-height: 0; }
+  .week-grid-wrapper { height: auto; max-height: none; overflow: visible; padding-bottom: 3px; }
+  .week-grid { min-width: 0; width: 100%; grid-template-columns: 32px repeat(7, minmax(0, 1fr)); grid-template-rows: 44px var(--timeline-height); gap: 0 3px; min-height: 0; }
+  .time-axis-header, .day-header { min-height: 44px; }
+  .day-header { padding: 6px 5px 5px; }
+  .time-axis { min-height: var(--timeline-height); }
+  .timeline-label { right: 3px; font-size: 7px; line-height: 9px; }
+  .day-name { font-size: 7px; }
+  .day-number { font-size: 16px; }
+  .language-note { max-width: 100%; margin-top: 2px; padding: 2px 3px; font-size: 6px; white-space: normal; }
+  .today-label { padding: 2px 3px; font-size: 6px; }
+  .day-timeline { min-height: var(--timeline-height); }
+  .task-item { gap: 3px; padding: 4px 3px; border-radius: 6px; }
+  .task-check { width: 12px; height: 12px; margin-top: 0; border-radius: 3px; }
+  .task-title { font-size: 8px; line-height: 1.15; }
+  .task-meta { gap: 2px; margin-top: 2px; font-size: 6px; }
+  .task-time { font-size: 6px; }
+  .kind-chip, .assignee-chip, .recurrence-icon { display: none; }
+  .assignee-decoration { top: -4px; right: 2px; font-size: 12px; }
+  .timed-event { min-height: 0; padding: 3px; }
+  .timed-cluster { gap: 1px; }
+  .timed-cluster-item { gap: 3px; padding: 3px; }
+  .timed-cluster-item .task-title { font-size: 8px; }
+  .timed-cluster-item .task-meta { display: none; }
+  .untimed-lane { gap: 1px; padding: 2px; }
+  .untimed-event { padding: 2px 3px; }
+  .untimed-event .task-title { font-size: 8px; }
+  .untimed-event .task-meta { display: none; }
+  .language-backdrop span { font-size: 24px; }
+  .completed-any-day-board { margin-top: 4px; grid-template-columns: 32px repeat(7, minmax(0, 1fr)); }
+  .completed-any-day-label, .completed-any-day-item, .completed-any-day-check { font-size: 6px; }
+  .side-stack { margin-top: 12px; }
+}
+
 /* Wall-tablet landscape layout: keep the complete week visible without page scrolling. */
 @media (min-width: 760px) and (orientation: landscape) {
   /* Keep the whole wall-tablet timeline compact even when Safari reports a
