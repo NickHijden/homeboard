@@ -33,6 +33,8 @@ node --test tests/recurrence.test.cjs
 
 See [`DEVELOPMENT.md`](DEVELOPMENT.md) for the environment rules and release checklist. Local previews show a `DEVELOPMENT · LOCAL ONLY` badge, while the public staging path shows `DEVELOPMENT · STAGING`; both refuse the known production Supabase URL. Use synthetic data and the separate Homeboard Development project when testing. The staging acceptance steps are in [`STAGING-QA.md`](STAGING-QA.md).
 
+The draft public sales preview is available in development at `/homeboard/dev/marketing/`. It has no signup, payment, or marketing tracking enabled.
+
 ## Optional phone/tablet cloud sync
 
 Homeboard remains local-first, but it can also sync through Supabase. Create a free Supabase project, run [`supabase-setup.sql`](supabase-setup.sql) once in its SQL Editor, then enter the project URL and publishable key in Homeboard Settings. Use the same Homeboard email and password on each device. The app keeps local saving enabled and merges new items before uploading them.
