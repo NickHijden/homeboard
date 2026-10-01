@@ -35,6 +35,10 @@ See [`DEVELOPMENT.md`](DEVELOPMENT.md) for the environment rules and release che
 
 The draft public sales preview is available in development at `/homeboard/dev/marketing/`. It has no signup, payment, or marketing tracking enabled.
 
+## Phase 3 onboarding foundation
+
+The development-only household account schema is in [`supabase/households-setup.sql`](supabase/households-setup.sql), and the secure invitation functions are in [`supabase/household-invitations-setup.sql`](supabase/household-invitations-setup.sql), with design and rollout notes in [`PHASE-3-ONBOARDING.md`](PHASE-3-ONBOARDING.md). Run both SQL files only in the separate Homeboard Development Supabase project after review. They do not change the current production board or migrate existing data.
+
 ## Optional phone/tablet cloud sync
 
 Homeboard remains local-first, but it can also sync through Supabase. Create a free Supabase project, run [`supabase-setup.sql`](supabase-setup.sql) once in its SQL Editor, then enter the project URL and publishable key in Homeboard Settings. Use the same Homeboard email and password on each device. The app keeps local saving enabled and merges new items before uploading them.
