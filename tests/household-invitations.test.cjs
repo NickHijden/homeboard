@@ -39,7 +39,8 @@ test('development UI calls the invitation functions through authenticated RPC', 
   assert.match(app, /\/rest\/v1\/rpc\/\$\{functionName\}/);
 });
 
-test('household UI is gated to development hosts', () => {
-  assert.match(app, /if \(!IS_DEVELOPMENT_HOST \|\| !els\.householdSection\) return;/);
-  assert.match(app, /if \(els\.householdButton\) els\.householdButton\.hidden = false;/);
+test('household UI is enabled for the central production build and development hosts', () => {
+  assert.match(app, /const HOUSEHOLD_UI_ENABLED = IS_DEVELOPMENT_HOST \|\| Boolean/);
+  assert.match(app, /if \(!HOUSEHOLD_UI_ENABLED \|\| !els\.householdSection\) return;/);
+  assert.match(app, /if \(els\.householdButton\) els\.householdButton\.hidden = !HOUSEHOLD_UI_ENABLED;/);
 });

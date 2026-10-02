@@ -6,8 +6,8 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const sql = fs.readFileSync(path.join(root, 'supabase', 'households-setup.sql'), 'utf8');
 
-test('Phase 3 schema is explicitly development-only and preserves the old sync table', () => {
-  assert.match(sql, /DEVELOPMENT ONLY/);
+test('Phase 3 schema is additive and preserves the old sync table', () => {
+  assert.match(sql, /Safe additive migration/);
   assert.match(sql, /coexists with planner_documents/);
   assert.match(sql, /create table if not exists public\.households/);
   assert.match(sql, /create table if not exists public\.household_documents/);

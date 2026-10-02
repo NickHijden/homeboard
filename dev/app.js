@@ -11,9 +11,12 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261001-01-staging';
+const APP_VERSION = '20261002-01-staging';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
+const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
+const CENTRAL_PRODUCTION_CONFIG = { url: PRODUCTION_SUPABASE_URL, key: PRODUCTION_SUPABASE_PUBLISHABLE_KEY };
+const HOUSEHOLD_UI_ENABLED = IS_DEVELOPMENT_HOST || Boolean(CENTRAL_PRODUCTION_CONFIG.url && CENTRAL_PRODUCTION_CONFIG.key);
 const LEGACY_STORAGE_KEYS = IS_STAGING_HOST ? [
   'homeboard-household-planner-v2-staging',
   'homeboard-planner-data-staging',
@@ -155,6 +158,8 @@ const els = {
   syncNowButton: document.querySelector('#syncNowButton'),
   syncSignOutButton: document.querySelector('#syncSignOutButton'),
   syncStatus: document.querySelector('#syncStatus'),
+  syncCopy: document.querySelector('#syncCopy'),
+  syncConfigFields: document.querySelector('#syncConfigFields'),
   householdSection: document.querySelector('#householdSection'),
   householdWorkspace: document.querySelector('#householdWorkspace'),
   householdAuthStatus: document.querySelector('#householdAuthStatus'),
@@ -334,14 +339,17 @@ function isKnownProductionUrl(url) {
 }
 
 function initializeEnvironment() {
-  if (!els.environmentBadge || !IS_DEVELOPMENT_HOST) return;
-  els.environmentBadge.hidden = false;
-  els.environmentBadge.textContent = IS_STAGING_HOST ? 'DEVELOPMENT · STAGING' : 'DEVELOPMENT · LOCAL ONLY';
-  els.environmentBadge.title = IS_STAGING_HOST
-    ? 'This public staging site is isolated from the production Supabase project.'
-    : 'This preview is isolated from the production Supabase project.';
-  if (els.householdButton) els.householdButton.hidden = false;
-  if (els.householdSection) els.householdSection.hidden = false;
+  if (els.environmentBadge && IS_DEVELOPMENT_HOST) {
+    els.environmentBadge.hidden = false;
+    els.environmentBadge.textContent = IS_STAGING_HOST ? 'DEVELOPMENT · STAGING' : 'DEVELOPMENT · LOCAL ONLY';
+    els.environmentBadge.title = IS_STAGING_HOST
+      ? 'This public staging site is isolated from the production Supabase project.'
+      : 'This preview is isolated from the production Supabase project.';
+  }
+  if (els.syncConfigFields) els.syncConfigFields.hidden = !IS_DEVELOPMENT_HOST;
+  if (els.syncCopy && IS_DEVELOPMENT_HOST) els.syncCopy.textContent = 'Use the Homeboard Development project and your test account here. Customers never need to enter a project URL or API key.';
+  if (els.householdButton) els.householdButton.hidden = !HOUSEHOLD_UI_ENABLED;
+  if (els.householdSection) els.householdSection.hidden = !HOUSEHOLD_UI_ENABLED;
 }
 
 function render() {
@@ -1705,6 +1713,7 @@ function importBackup(event) {
 }
 
 function loadSyncConfig() {
+  if (!IS_DEVELOPMENT_HOST) return { url: CENTRAL_PRODUCTION_CONFIG.url, key: CENTRAL_PRODUCTION_CONFIG.key };
   try {
     const stored = JSON.parse(localStorage.getItem(SYNC_CONFIG_KEY));
     if (stored && stored.url && stored.key) {
@@ -1754,8 +1763,8 @@ function saveHouseholdSelection() {
 }
 
 function initializeSync() {
-  if (els.syncProjectUrl) els.syncProjectUrl.value = syncState.config.url;
-  if (els.syncPublishableKey) els.syncPublishableKey.value = syncState.config.key;
+  if (IS_DEVELOPMENT_HOST && els.syncProjectUrl) els.syncProjectUrl.value = syncState.config.url;
+  if (IS_DEVELOPMENT_HOST && els.syncPublishableKey) els.syncPublishableKey.value = syncState.config.key;
   if (els.syncEmail) els.syncEmail.value = loadSyncEmail() || (syncState.session && syncState.session.user && syncState.session.user.email) || '';
   if (els.inviteTokenInput) {
     try { els.inviteTokenInput.value = new URL(window.location.href).searchParams.get('invite') || ''; } catch (error) { /* Older Safari can ignore a malformed URL. */ }
@@ -1770,6 +1779,10 @@ function initializeSync() {
 }
 
 function saveSyncConfig() {
+  if (!IS_DEVELOPMENT_HOST) {
+    setSyncStatus('This Homeboard build is centrally configured.', 'connected');
+    return;
+  }
   const url = String(els.syncProjectUrl.value || '').trim().replace(/\/$/, '');
   const key = String(els.syncPublishableKey.value || '').trim();
   if (!/^https:\/\//i.test(url) || !key) {
@@ -1870,6 +1883,7 @@ function renderSyncStatus(message, type) {
   if (message) els.syncStatus.textContent = message;
   else if (!syncState.config.url || !syncState.config.key) els.syncStatus.textContent = 'Cloud sync is not connected.';
   else if (syncState.session) els.syncStatus.textContent = 'Connected. Syncing automatically.';
+  else if (!IS_DEVELOPMENT_HOST) els.syncStatus.textContent = 'Sign in to your Homeboard account.';
   else els.syncStatus.textContent = 'Connection saved. Sign in below.';
   els.syncStatus.className = `sync-status${type ? ` ${type}` : syncState.session ? ' connected' : ''}`;
 }
@@ -1879,7 +1893,7 @@ function setSyncStatus(message, type) {
 }
 
 function renderHouseholdUI() {
-  if (!IS_DEVELOPMENT_HOST || !els.householdSection) return;
+  if (!HOUSEHOLD_UI_ENABLED || !els.householdSection) return;
   const signedIn = Boolean(syncState.session);
   if (els.householdAuthStatus) {
     els.householdAuthStatus.textContent = signedIn
@@ -1946,7 +1960,9 @@ async function loadHouseholds() {
   } catch (error) {
     householdState.households = [];
     householdState.invitations = [];
-    setHouseholdStatus('Run household-invitations-setup.sql in Homeboard Development, then refresh this screen.', 'error');
+    setHouseholdStatus(IS_DEVELOPMENT_HOST
+      ? 'Run household-invitations-setup.sql in Homeboard Development, then refresh this screen.'
+      : 'The household service is not enabled yet. Please try again later.', 'error');
   } finally {
     householdState.loading = false;
     renderHouseholdUI();

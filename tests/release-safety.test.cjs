@@ -20,6 +20,16 @@ test('development hosts refuse the production Supabase project', () => {
   assert.match(app, /if \(IS_DEVELOPMENT_HOST && isKnownProductionUrl\(url\)\)/);
 });
 
+test('production is centrally configured while development keeps manual configuration', () => {
+  const app = read('app.js');
+  const index = read('index.html');
+  assert.match(app, /const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_[A-Za-z0-9_-]+';/);
+  assert.match(app, /if \(!IS_DEVELOPMENT_HOST\) return \{ url: CENTRAL_PRODUCTION_CONFIG\.url, key: CENTRAL_PRODUCTION_CONFIG\.key \};/);
+  assert.match(index, /id="syncConfigFields" hidden/);
+  assert.match(app, /els\.syncConfigFields\.hidden = !IS_DEVELOPMENT_HOST/);
+  assert.match(app, /const HOUSEHOLD_UI_ENABLED = IS_DEVELOPMENT_HOST \|\| Boolean/);
+});
+
 test('production and staging service workers keep separate caches', () => {
   const worker = read('sw.js');
   assert.match(worker, /const STAGING_PATH_PREFIX = '\/homeboard\/dev\/'/);

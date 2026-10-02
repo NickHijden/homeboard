@@ -1,9 +1,9 @@
 -- Homeboard Phase 3 foundation: household accounts and membership isolation
 --
--- DEVELOPMENT ONLY for now.
--- Run this in the separate Homeboard Development Supabase project. Do not run
--- it in the existing production project until the onboarding migration has
--- been reviewed and the app has been updated to use these tables.
+-- Safe additive migration for Homeboard Development and customer projects.
+-- Run this in Development first. After review and a current backup, it can
+-- be run in the Homeboard production project. It does not modify or delete
+-- planner_documents or existing planner data.
 --
 -- This deliberately coexists with planner_documents. Existing local-first and
 -- one-user cloud-sync data is not migrated or deleted by this script.

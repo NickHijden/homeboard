@@ -1,8 +1,9 @@
 -- Homeboard Phase 3 invitation functions
 --
--- Run this after households-setup.sql in the separate Homeboard Development
--- Supabase project only. These functions are the only supported client path
--- for invitation creation, revocation, and acceptance.
+-- Run this after households-setup.sql. Apply it in Development first; after
+-- review and a current backup, it can also be applied to the Homeboard
+-- production project. These functions are the only supported client path for
+-- invitation creation, revocation, and acceptance.
 
 -- Supabase installs pgcrypto helpers in the extensions schema. Qualify the
 -- helpers so SECURITY DEFINER functions do not depend on a caller search path.
