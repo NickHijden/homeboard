@@ -15,6 +15,12 @@ test('invitation functions are server-side and callable only by authenticated us
   assert.doesNotMatch(sql, /grant execute on function public\.accept_household_invitation\(text\) to anon/);
 });
 
+test('invitation tokens use Supabase pgcrypto from the extensions schema', () => {
+  assert.match(sql, /extensions\.gen_random_bytes\(32\)/);
+  assert.match(sql, /extensions\.digest\(raw_token, 'sha256'\)/);
+  assert.match(sql, /extensions\.digest\(btrim\(raw_token\), 'sha256'\)/);
+});
+
 test('invitation acceptance verifies the signed-in email and consumes the token once', () => {
   assert.match(sql, /email_confirmed_at is null/);
   assert.match(sql, /lower\(btrim\(invitation\.invited_email\)\) <> caller_email/);

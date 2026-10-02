@@ -4,6 +4,9 @@
 -- Supabase project only. These functions are the only supported client path
 -- for invitation creation, revocation, and acceptance.
 
+-- Supabase installs pgcrypto helpers in the extensions schema. Qualify the
+-- helpers so SECURITY DEFINER functions do not depend on a caller search path.
+
 create or replace function public.list_my_households()
 returns table (
   household_id uuid,
@@ -65,7 +68,7 @@ begin
     raise exception 'Invitation expiry must be between 1 and 720 hours';
   end if;
 
-  raw_token := encode(gen_random_bytes(32), 'hex');
+  raw_token := encode(extensions.gen_random_bytes(32), 'hex');
   invitation_expiry := now() + make_interval(hours => ttl_hours);
 
   insert into public.household_invitations (
@@ -79,7 +82,7 @@ begin
     target_household_id,
     clean_email,
     caller_id,
-    encode(digest(raw_token, 'sha256'), 'hex'),
+    encode(extensions.digest(raw_token, 'sha256'), 'hex'),
     invitation_expiry
   )
   returning id into new_invitation_id;
@@ -171,7 +174,7 @@ begin
 
   select * into invitation
   from public.household_invitations
-  where token_hash = encode(digest(btrim(raw_token), 'sha256'), 'hex')
+  where token_hash = encode(extensions.digest(btrim(raw_token), 'sha256'), 'hex')
     and accepted_at is null
     and revoked_at is null
     and expires_at > now()
