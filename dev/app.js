@@ -9,8 +9,9 @@ const IDB_STORE = 'planner-data';
 const SYNC_CONFIG_KEY = `homeboard-sync-config-v1${STORAGE_NAMESPACE}`;
 const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
+const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20260930-07-staging';
+const APP_VERSION = '20261001-01-staging';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const LEGACY_STORAGE_KEYS = IS_STAGING_HOST ? [
@@ -72,6 +73,13 @@ const syncState = {
   pending: false,
 };
 
+const householdState = {
+  households: [],
+  invitations: [],
+  selectedHouseholdId: loadHouseholdSelection(),
+  loading: false,
+};
+
 const els = {
   weekHeading: document.querySelector('#weekHeading'),
   weekRange: document.querySelector('#weekRange'),
@@ -125,6 +133,7 @@ const els = {
   environmentBadge: document.querySelector('#environmentBadge'),
   toast: document.querySelector('#toast'),
   settingsButton: document.querySelector('#settingsButton'),
+  householdButton: document.querySelector('#householdButton'),
   settingsDialog: document.querySelector('#settingsDialog'),
   closeSettingsButton: document.querySelector('#closeSettingsButton'),
   settingsForm: document.querySelector('#settingsForm'),
@@ -146,6 +155,22 @@ const els = {
   syncNowButton: document.querySelector('#syncNowButton'),
   syncSignOutButton: document.querySelector('#syncSignOutButton'),
   syncStatus: document.querySelector('#syncStatus'),
+  householdSection: document.querySelector('#householdSection'),
+  householdWorkspace: document.querySelector('#householdWorkspace'),
+  householdAuthStatus: document.querySelector('#householdAuthStatus'),
+  householdSelect: document.querySelector('#householdSelect'),
+  householdNameInput: document.querySelector('#householdNameInput'),
+  createHouseholdButton: document.querySelector('#createHouseholdButton'),
+  householdInvitePanel: document.querySelector('#householdInvitePanel'),
+  inviteEmailInput: document.querySelector('#inviteEmailInput'),
+  createInvitationButton: document.querySelector('#createInvitationButton'),
+  invitationLinkBox: document.querySelector('#invitationLinkBox'),
+  invitationLinkInput: document.querySelector('#invitationLinkInput'),
+  copyInvitationButton: document.querySelector('#copyInvitationButton'),
+  invitationList: document.querySelector('#invitationList'),
+  inviteTokenInput: document.querySelector('#inviteTokenInput'),
+  acceptInvitationButton: document.querySelector('#acceptInvitationButton'),
+  householdStatus: document.querySelector('#householdStatus'),
   daySettingsDialog: document.querySelector('#daySettingsDialog'),
   daySettingsForm: document.querySelector('#daySettingsForm'),
   daySettingsTitle: document.querySelector('#daySettingsTitle'),
@@ -263,6 +288,21 @@ function bindEvents() {
   if (els.syncSignUpButton) els.syncSignUpButton.addEventListener('click', () => signIn(true));
   if (els.syncNowButton) els.syncNowButton.addEventListener('click', () => syncNow(true));
   if (els.syncSignOutButton) els.syncSignOutButton.addEventListener('click', signOut);
+  if (els.householdButton) els.householdButton.addEventListener('click', () => {
+    openDialog(els.settingsDialog);
+    renderHouseholdUI();
+  });
+  if (els.householdSelect) els.householdSelect.addEventListener('change', () => {
+    householdState.selectedHouseholdId = els.householdSelect.value || '';
+    saveHouseholdSelection();
+    loadHouseholdInvitations();
+    renderHouseholdUI();
+  });
+  if (els.createHouseholdButton) els.createHouseholdButton.addEventListener('click', createHouseholdFromUI);
+  if (els.createInvitationButton) els.createInvitationButton.addEventListener('click', createInvitationFromUI);
+  if (els.copyInvitationButton) els.copyInvitationButton.addEventListener('click', copyInvitationLink);
+  if (els.acceptInvitationButton) els.acceptInvitationButton.addEventListener('click', acceptInvitationFromUI);
+  if (els.invitationList) els.invitationList.addEventListener('click', handleInvitationListClick);
 
   // iPad pauses timers while the Home Screen app is in the background. When
   // it becomes visible again, immediately refresh both the app shell and the
@@ -300,6 +340,8 @@ function initializeEnvironment() {
   els.environmentBadge.title = IS_STAGING_HOST
     ? 'This public staging site is isolated from the production Supabase project.'
     : 'This preview is isolated from the production Supabase project.';
+  if (els.householdButton) els.householdButton.hidden = false;
+  if (els.householdSection) els.householdSection.hidden = false;
 }
 
 function render() {
@@ -1694,14 +1736,36 @@ function loadSyncEmail() {
   }
 }
 
+function loadHouseholdSelection() {
+  try {
+    return String(localStorage.getItem(HOUSEHOLD_SELECTION_KEY) || '');
+  } catch (error) {
+    return '';
+  }
+}
+
+function saveHouseholdSelection() {
+  try {
+    if (householdState.selectedHouseholdId) localStorage.setItem(HOUSEHOLD_SELECTION_KEY, householdState.selectedHouseholdId);
+    else localStorage.removeItem(HOUSEHOLD_SELECTION_KEY);
+  } catch (error) {
+    // Local storage is optional; the selected household can be recovered on refresh.
+  }
+}
+
 function initializeSync() {
   if (els.syncProjectUrl) els.syncProjectUrl.value = syncState.config.url;
   if (els.syncPublishableKey) els.syncPublishableKey.value = syncState.config.key;
   if (els.syncEmail) els.syncEmail.value = loadSyncEmail() || (syncState.session && syncState.session.user && syncState.session.user.email) || '';
+  if (els.inviteTokenInput) {
+    try { els.inviteTokenInput.value = new URL(window.location.href).searchParams.get('invite') || ''; } catch (error) { /* Older Safari can ignore a malformed URL. */ }
+  }
   renderSyncStatus();
+  renderHouseholdUI();
   if (syncState.session && syncState.config.url && syncState.config.key) {
     startSyncPolling();
     syncNow(false);
+    loadHouseholds();
   }
 }
 
@@ -1722,6 +1786,10 @@ function saveSyncConfig() {
     syncState.session = null;
     stopSyncPolling();
     localStorage.removeItem(SYNC_SESSION_KEY);
+    householdState.households = [];
+    householdState.invitations = [];
+    householdState.selectedHouseholdId = '';
+    saveHouseholdSelection();
   }
   localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(syncState.config));
   if (syncState.session && !connectionChanged) {
@@ -1757,6 +1825,7 @@ async function signIn(createAccount) {
     setSyncSession(response);
     startSyncPolling();
     await syncNow(true);
+    await loadHouseholds();
     els.syncPassword.value = '';
   } catch (error) {
     setSyncStatus(error.message || 'Cloud sign-in failed.', 'error');
@@ -1767,6 +1836,11 @@ function signOut() {
   stopSyncPolling();
   syncState.session = null;
   localStorage.removeItem(SYNC_SESSION_KEY);
+  householdState.households = [];
+  householdState.invitations = [];
+  householdState.selectedHouseholdId = '';
+  saveHouseholdSelection();
+  renderHouseholdUI();
   renderSyncStatus('Signed out. Local planner data is still available.');
 }
 
@@ -1802,6 +1876,237 @@ function renderSyncStatus(message, type) {
 
 function setSyncStatus(message, type) {
   renderSyncStatus(message, type);
+}
+
+function renderHouseholdUI() {
+  if (!IS_DEVELOPMENT_HOST || !els.householdSection) return;
+  const signedIn = Boolean(syncState.session);
+  if (els.householdAuthStatus) {
+    els.householdAuthStatus.textContent = signedIn
+      ? `Signed in as ${syncState.session.user && syncState.session.user.email ? syncState.session.user.email : 'this account'}.`
+      : 'Sign in above to continue.';
+    els.householdAuthStatus.className = `sync-status${signedIn ? ' connected' : ''}`;
+  }
+  if (els.householdWorkspace) els.householdWorkspace.hidden = !signedIn;
+  if (!signedIn) {
+    if (els.householdStatus) els.householdStatus.textContent = '';
+    return;
+  }
+
+  const households = householdState.households || [];
+  const selected = getSelectedHousehold();
+  if (!households.some((household) => household.household_id === householdState.selectedHouseholdId)) {
+    householdState.selectedHouseholdId = households[0] ? households[0].household_id : '';
+    saveHouseholdSelection();
+  }
+  if (els.householdSelect) {
+    els.householdSelect.hidden = !households.length;
+    els.householdSelect.innerHTML = households.map((household) => `
+      <option value="${escapeAttribute(household.household_id)}" ${household.household_id === householdState.selectedHouseholdId ? 'selected' : ''}>
+        ${escapeHtml(household.household_name)} · ${escapeHtml(household.role)}
+      </option>
+    `).join('');
+    els.householdSelect.disabled = householdState.loading || !households.length;
+  }
+  if (els.createHouseholdButton) els.createHouseholdButton.disabled = householdState.loading;
+  if (els.createInvitationButton) els.createInvitationButton.disabled = householdState.loading || !selected || selected.role !== 'owner';
+  if (els.acceptInvitationButton) els.acceptInvitationButton.disabled = householdState.loading;
+  if (els.householdInvitePanel) els.householdInvitePanel.hidden = !selected || selected.role !== 'owner';
+  if (els.invitationLinkBox && !els.invitationLinkInput.value) els.invitationLinkBox.hidden = true;
+  renderInvitationList();
+}
+
+function getSelectedHousehold() {
+  return (householdState.households || []).find((household) => household.household_id === householdState.selectedHouseholdId) || null;
+}
+
+function setHouseholdStatus(message, type) {
+  if (!els.householdStatus) return;
+  els.householdStatus.textContent = message || '';
+  els.householdStatus.className = `sync-status${type ? ` ${type}` : ''}`;
+}
+
+async function loadHouseholds() {
+  if (!IS_DEVELOPMENT_HOST || !syncState.session || !syncState.config.url || !syncState.config.key) {
+    renderHouseholdUI();
+    return;
+  }
+  householdState.loading = true;
+  renderHouseholdUI();
+  try {
+    const rows = await householdRpc('list_my_households', {});
+    householdState.households = Array.isArray(rows) ? rows : [];
+    if (!householdState.households.some((household) => household.household_id === householdState.selectedHouseholdId)) {
+      householdState.selectedHouseholdId = householdState.households[0] ? householdState.households[0].household_id : '';
+      saveHouseholdSelection();
+    }
+    householdState.invitations = [];
+    await loadHouseholdInvitations();
+    setHouseholdStatus(householdState.households.length ? 'Household account ready.' : 'Create your household or join one with an invitation.', 'connected');
+  } catch (error) {
+    householdState.households = [];
+    householdState.invitations = [];
+    setHouseholdStatus('Run household-invitations-setup.sql in Homeboard Development, then refresh this screen.', 'error');
+  } finally {
+    householdState.loading = false;
+    renderHouseholdUI();
+  }
+}
+
+async function loadHouseholdInvitations() {
+  const selected = getSelectedHousehold();
+  if (!selected || selected.role !== 'owner') {
+    householdState.invitations = [];
+    renderInvitationList();
+    return;
+  }
+  try {
+    const rows = await householdRpc('list_household_invitations', { target_household_id: selected.household_id });
+    householdState.invitations = Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    householdState.invitations = [];
+  }
+  renderInvitationList();
+}
+
+function renderInvitationList() {
+  if (!els.invitationList) return;
+  if (!householdState.invitations.length) {
+    els.invitationList.innerHTML = '<p class="household-empty">No invitations yet.</p>';
+    return;
+  }
+  els.invitationList.innerHTML = householdState.invitations.map((invitation) => {
+    const status = invitation.accepted_at ? 'Accepted' : invitation.revoked_at ? 'Revoked' : new Date(invitation.expires_at) <= new Date() ? 'Expired' : 'Pending';
+    const canRevoke = status === 'Pending';
+    return `<div class="invitation-row">
+      <div><strong>${escapeHtml(invitation.invited_email)}</strong><span>${status} · expires ${escapeHtml(formatLongDate(new Date(invitation.expires_at)))}</span></div>
+      ${canRevoke ? `<button class="subtle-button" type="button" data-invitation-action="revoke" data-invitation-id="${escapeAttribute(invitation.invitation_id)}">Revoke</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function createHouseholdFromUI() {
+  const name = String(els.householdNameInput && els.householdNameInput.value || '').trim();
+  if (!name) {
+    setHouseholdStatus('Enter a household name first.', 'error');
+    return;
+  }
+  try {
+    householdState.loading = true;
+    renderHouseholdUI();
+    await householdRpc('create_household', { household_name: name });
+    els.householdNameInput.value = '';
+    await loadHouseholds();
+    setHouseholdStatus('Household created. You can now invite your partner.', 'connected');
+  } catch (error) {
+    setHouseholdStatus(error.message || 'The household could not be created.', 'error');
+    householdState.loading = false;
+    renderHouseholdUI();
+  }
+}
+
+async function createInvitationFromUI() {
+  const selected = getSelectedHousehold();
+  const email = String(els.inviteEmailInput && els.inviteEmailInput.value || '').trim();
+  if (!selected || selected.role !== 'owner') {
+    setHouseholdStatus('Only a household owner can create an invitation.', 'error');
+    return;
+  }
+  if (!email || !email.includes('@')) {
+    setHouseholdStatus('Enter your partner’s email address first.', 'error');
+    return;
+  }
+  try {
+    householdState.loading = true;
+    renderHouseholdUI();
+    const result = await householdRpc('create_household_invitation', {
+      target_household_id: selected.household_id,
+      target_email: email,
+      ttl_hours: 168,
+    });
+    const invitation = Array.isArray(result) ? result[0] : result;
+    if (!invitation || !invitation.token) throw new Error('The invitation was created without a token. Please try again.');
+    const link = new URL(window.location.href);
+    link.searchParams.set('invite', invitation.token);
+    els.invitationLinkInput.value = link.toString();
+    els.invitationLinkBox.hidden = false;
+    els.inviteEmailInput.value = '';
+    await loadHouseholdInvitations();
+    setHouseholdStatus('Invitation created. Copy the link and send it to your partner.', 'connected');
+  } catch (error) {
+    setHouseholdStatus(error.message || 'The invitation could not be created.', 'error');
+  } finally {
+    householdState.loading = false;
+    renderHouseholdUI();
+  }
+}
+
+async function acceptInvitationFromUI() {
+  const rawValue = String(els.inviteTokenInput && els.inviteTokenInput.value || '').trim();
+  let token = rawValue;
+  try {
+    if (/^https?:\/\//i.test(rawValue)) token = new URL(rawValue).searchParams.get('invite') || rawValue;
+  } catch (error) {
+    token = rawValue;
+  }
+  if (!token) {
+    setHouseholdStatus('Paste an invitation link or token first.', 'error');
+    return;
+  }
+  try {
+    householdState.loading = true;
+    renderHouseholdUI();
+    await householdRpc('accept_household_invitation', { raw_token: token });
+    els.inviteTokenInput.value = '';
+    await loadHouseholds();
+    setHouseholdStatus('Invitation accepted. You joined the household.', 'connected');
+  } catch (error) {
+    setHouseholdStatus(error.message || 'The invitation could not be accepted.', 'error');
+  } finally {
+    householdState.loading = false;
+    renderHouseholdUI();
+  }
+}
+
+async function handleInvitationListClick(event) {
+  const button = event.target.closest('[data-invitation-action="revoke"]');
+  if (!button) return;
+  try {
+    householdState.loading = true;
+    renderHouseholdUI();
+    await householdRpc('revoke_household_invitation', { target_invitation_id: button.dataset.invitationId });
+    await loadHouseholdInvitations();
+    setHouseholdStatus('Invitation revoked.', 'connected');
+  } catch (error) {
+    setHouseholdStatus(error.message || 'The invitation could not be revoked.', 'error');
+  } finally {
+    householdState.loading = false;
+    renderHouseholdUI();
+  }
+}
+
+async function copyInvitationLink() {
+  const value = String(els.invitationLinkInput && els.invitationLinkInput.value || '');
+  if (!value) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(value);
+    else {
+      els.invitationLinkInput.focus();
+      els.invitationLinkInput.select();
+      document.execCommand('copy');
+    }
+    setHouseholdStatus('Invitation link copied.', 'connected');
+  } catch (error) {
+    els.invitationLinkInput.focus();
+    els.invitationLinkInput.select();
+    setHouseholdStatus('Select the link and copy it manually.', 'error');
+  }
+}
+
+async function householdRpc(functionName, body) {
+  const session = await ensureSyncSession();
+  if (!session) throw new Error('Sign in to manage your household.');
+  return syncRequest(`/rest/v1/rpc/${functionName}`, { method: 'POST', body }, session.access_token);
 }
 
 async function syncNow(manual) {

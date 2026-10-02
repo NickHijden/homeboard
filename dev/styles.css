@@ -309,6 +309,22 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .sync-status { min-height: 18px; margin: 14px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .sync-status.connected { color: #278b6e; }
 .sync-status.error { color: #c75c63; }
+.household-topbar-button { min-height: 36px; padding: 0 13px; font-size: 11px; }
+.household-section { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line); }
+.household-section h3 { margin: -1px 0 8px; font-family: 'Space Grotesk', sans-serif; font-size: 17px; }
+.household-create-row { display: flex; align-items: center; gap: 8px; }
+.household-create-row .large-input { flex: 1 1 auto; min-width: 0; margin-bottom: 12px; }
+.household-create-row button { flex: 0 0 auto; min-height: 43px; margin-bottom: 12px; padding: 0 12px; font-size: 11px; }
+.household-invite-panel, .household-accept-panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.invitation-link-box { margin-top: 4px; padding: 10px; border-radius: 11px; background: var(--mint-soft); }
+.invitation-link-box .large-input { margin-bottom: 0; background: #fff; font-size: 10px; }
+.invitation-list { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; }
+.invitation-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f0f4; }
+.invitation-row:last-child { border-bottom: 0; }
+.invitation-row strong, .invitation-row span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invitation-row strong { color: #4b4f59; font-size: 11px; }
+.invitation-row span { margin-top: 2px; color: #a1a5b0; font-size: 10px; }
+.household-empty { margin: 6px 0 0; color: #a1a5b0; font-size: 10px; }
 .settings-note { display: flex; gap: 8px; margin-top: 22px; padding: 12px; border-radius: 11px; background: var(--mint-soft); color: #318e73; font-size: 11px; line-height: 1.45; }
 .settings-note span { color: var(--mint); }
 .backup-form { width: min(720px, calc(100vw - 40px)); }

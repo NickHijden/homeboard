@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20260930-07-staging" />
+    <link rel="stylesheet" href="styles.css?v=20261001-01-staging" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -18,7 +18,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20260930-07-staging</p>
+            <p class="app-version">Version 20261001-01-staging</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -27,6 +27,7 @@
 
         <div class="topbar-actions">
           <button class="icon-button" id="settingsButton" type="button" aria-label="Open settings" title="Settings">⚙</button>
+          <button class="secondary-button household-topbar-button" id="householdButton" type="button" hidden>Household</button>
           <button class="secondary-button overview-button" id="taskOverviewButton" type="button"><span aria-hidden="true">☷</span> Task overview</button>
           <!-- Keep the original id as a compatibility bridge for an older cached iPad script. -->
           <button class="primary-button" id="addTaskButton" type="button"><span aria-hidden="true">＋</span> Add event</button>
@@ -284,6 +285,49 @@
           </div>
           <p class="sync-status" id="syncStatus" aria-live="polite">Cloud sync is not connected.</p>
         </div>
+        <section class="household-section" id="householdSection" hidden aria-labelledby="householdSectionTitle">
+          <p class="eyebrow">PHASE 3 · DEVELOPMENT</p>
+          <h3 id="householdSectionTitle">Household account</h3>
+          <p class="sync-copy">Create a household for your shared planner or accept a partner invitation. This preview uses the development database only.</p>
+          <p class="sync-status" id="householdAuthStatus" aria-live="polite">Sign in above to continue.</p>
+
+          <div id="householdWorkspace" hidden>
+            <label class="field-label" for="householdSelect">Your household</label>
+            <select class="large-input" id="householdSelect" aria-label="Choose household"></select>
+
+            <div class="household-create-row">
+              <input class="large-input" id="householdNameInput" type="text" maxlength="120" placeholder="e.g. Nick &amp; Stephany" autocomplete="off" />
+              <button class="secondary-button" id="createHouseholdButton" type="button">Create</button>
+            </div>
+
+            <div class="household-invite-panel" id="householdInvitePanel" hidden>
+              <p class="field-label">Invite your partner</p>
+              <div class="household-create-row">
+                <input class="large-input" id="inviteEmailInput" type="email" placeholder="partner@example.com" autocomplete="email" />
+                <button class="primary-button" id="createInvitationButton" type="button">Create invite</button>
+              </div>
+              <p class="field-hint">The invitation link expires after 7 days and can be used once by the invited email address.</p>
+              <div class="invitation-link-box" id="invitationLinkBox" hidden>
+                <label class="field-label" for="invitationLinkInput">Copy this secure link</label>
+                <div class="household-create-row">
+                  <input class="large-input" id="invitationLinkInput" type="text" readonly />
+                  <button class="secondary-button" id="copyInvitationButton" type="button">Copy</button>
+                </div>
+              </div>
+              <div class="invitation-list" id="invitationList"></div>
+            </div>
+
+            <div class="household-accept-panel">
+              <p class="field-label">Have an invitation?</p>
+              <div class="household-create-row">
+                <input class="large-input" id="inviteTokenInput" type="text" placeholder="Paste invitation token" autocomplete="off" />
+                <button class="secondary-button" id="acceptInvitationButton" type="button">Join</button>
+              </div>
+              <p class="field-hint">You must be signed in with the verified email address that received the invitation.</p>
+            </div>
+          </div>
+          <p class="sync-status" id="householdStatus" aria-live="polite"></p>
+        </section>
         <div class="settings-note"><span aria-hidden="true">✦</span> Local saving stays active even when the internet is unavailable.</div>
       </form>
     </dialog>
@@ -312,7 +356,7 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20260930-07-staging" defer></script>
-    <script src="app.js?v=20260930-07-staging" defer></script>
+    <script src="recurrence.js?v=20261001-01-staging" defer></script>
+    <script src="app.js?v=20261001-01-staging" defer></script>
   </body>
 </html>
