@@ -11,7 +11,7 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261002-01';
+const APP_VERSION = '20261002-02';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
@@ -1941,7 +1941,7 @@ function setHouseholdStatus(message, type) {
 }
 
 async function loadHouseholds() {
-  if (!IS_DEVELOPMENT_HOST || !syncState.session || !syncState.config.url || !syncState.config.key) {
+  if (!HOUSEHOLD_UI_ENABLED || !syncState.session || !syncState.config.url || !syncState.config.key) {
     renderHouseholdUI();
     return;
   }
