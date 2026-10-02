@@ -11,7 +11,7 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261002-02-staging';
+const APP_VERSION = '20261002-03-staging';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
@@ -80,8 +80,10 @@ const householdState = {
   households: [],
   invitations: [],
   selectedHouseholdId: loadHouseholdSelection(),
+  loaded: false,
   loading: false,
 };
+let householdLoadPromise = null;
 
 const els = {
   weekHeading: document.querySelector('#weekHeading'),
@@ -1773,8 +1775,8 @@ function initializeSync() {
   renderHouseholdUI();
   if (syncState.session && syncState.config.url && syncState.config.key) {
     startSyncPolling();
-    syncNow(false);
     loadHouseholds();
+    syncNow(false);
   }
 }
 
@@ -1802,6 +1804,7 @@ function saveSyncConfig() {
     householdState.households = [];
     householdState.invitations = [];
     householdState.selectedHouseholdId = '';
+    householdState.loaded = false;
     saveHouseholdSelection();
   }
   localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(syncState.config));
@@ -1837,8 +1840,8 @@ async function signIn(createAccount) {
     }
     setSyncSession(response);
     startSyncPolling();
+    await loadHouseholds(true);
     await syncNow(true);
-    await loadHouseholds();
     els.syncPassword.value = '';
   } catch (error) {
     setSyncStatus(error.message || 'Cloud sign-in failed.', 'error');
@@ -1852,6 +1855,7 @@ function signOut() {
   householdState.households = [];
   householdState.invitations = [];
   householdState.selectedHouseholdId = '';
+  householdState.loaded = false;
   saveHouseholdSelection();
   renderHouseholdUI();
   renderSyncStatus('Signed out. Local planner data is still available.');
@@ -1940,32 +1944,45 @@ function setHouseholdStatus(message, type) {
   els.householdStatus.className = `sync-status${type ? ` ${type}` : ''}`;
 }
 
-async function loadHouseholds() {
+async function loadHouseholds(force = false) {
   if (!HOUSEHOLD_UI_ENABLED || !syncState.session || !syncState.config.url || !syncState.config.key) {
     renderHouseholdUI();
     return;
   }
+  if (householdLoadPromise) return householdLoadPromise;
+  if (householdState.loaded && !force) return householdState.households;
   householdState.loading = true;
   renderHouseholdUI();
-  try {
-    const rows = await householdRpc('list_my_households', {});
-    householdState.households = Array.isArray(rows) ? rows : [];
-    if (!householdState.households.some((household) => household.household_id === householdState.selectedHouseholdId)) {
-      householdState.selectedHouseholdId = householdState.households[0] ? householdState.households[0].household_id : '';
-      saveHouseholdSelection();
+  householdLoadPromise = (async () => {
+    try {
+      const rows = await householdRpc('list_my_households', {});
+      householdState.households = Array.isArray(rows) ? rows : [];
+      if (!householdState.households.some((household) => household.household_id === householdState.selectedHouseholdId)) {
+        householdState.selectedHouseholdId = householdState.households[0] ? householdState.households[0].household_id : '';
+        saveHouseholdSelection();
+      }
+      householdState.invitations = [];
+      await loadHouseholdInvitations();
+      householdState.loaded = true;
+      setHouseholdStatus(householdState.households.length ? 'Household account ready.' : 'Create your household or join one with an invitation.', 'connected');
+      return householdState.households;
+    } catch (error) {
+      householdState.households = [];
+      householdState.invitations = [];
+      householdState.loaded = true;
+      setHouseholdStatus(IS_DEVELOPMENT_HOST
+        ? 'Run household-invitations-setup.sql in Homeboard Development, then refresh this screen.'
+        : 'The household service is not enabled yet. Please try again later.', 'error');
+      return [];
+    } finally {
+      householdState.loading = false;
+      renderHouseholdUI();
     }
-    householdState.invitations = [];
-    await loadHouseholdInvitations();
-    setHouseholdStatus(householdState.households.length ? 'Household account ready.' : 'Create your household or join one with an invitation.', 'connected');
-  } catch (error) {
-    householdState.households = [];
-    householdState.invitations = [];
-    setHouseholdStatus(IS_DEVELOPMENT_HOST
-      ? 'Run household-invitations-setup.sql in Homeboard Development, then refresh this screen.'
-      : 'The household service is not enabled yet. Please try again later.', 'error');
+  })();
+  try {
+    return await householdLoadPromise;
   } finally {
-    householdState.loading = false;
-    renderHouseholdUI();
+    householdLoadPromise = null;
   }
 }
 
@@ -2012,7 +2029,7 @@ async function createHouseholdFromUI() {
     renderHouseholdUI();
     await householdRpc('create_household', { household_name: name });
     els.householdNameInput.value = '';
-    await loadHouseholds();
+    await loadHouseholds(true);
     setHouseholdStatus('Household created. You can now invite your partner.', 'connected');
   } catch (error) {
     setHouseholdStatus(error.message || 'The household could not be created.', 'error');
@@ -2074,7 +2091,7 @@ async function acceptInvitationFromUI() {
     renderHouseholdUI();
     await householdRpc('accept_household_invitation', { raw_token: token });
     els.inviteTokenInput.value = '';
-    await loadHouseholds();
+    await loadHouseholds(true);
     setHouseholdStatus('Invitation accepted. You joined the household.', 'connected');
   } catch (error) {
     setHouseholdStatus(error.message || 'The invitation could not be accepted.', 'error');
@@ -2143,7 +2160,8 @@ async function syncNow(manual) {
   try {
     const session = await ensureSyncSession();
     if (!session) throw new Error('Your session expired. Please sign in again.');
-    const remote = await fetchRemoteData(session);
+    const household = await ensureSelectedHouseholdForSync();
+    const remote = await fetchRemoteData(session, household);
     const localBefore = JSON.stringify(state.data);
     const merged = remote ? mergePlannerData(state.data, remote) : state.data;
     const mergedSignature = JSON.stringify(merged);
@@ -2152,8 +2170,8 @@ async function syncNow(manual) {
       persist({ sync: false });
       render();
     }
-    if (!remote || JSON.stringify(remote) !== mergedSignature) await pushRemoteData(session, merged);
-    renderSyncStatus('Connected. Synced just now.', 'connected');
+    if (!remote || JSON.stringify(remote) !== mergedSignature) await pushRemoteData(session, merged, household);
+    renderSyncStatus(household ? 'Connected. Shared household synced just now.' : 'Connected. Synced just now.', 'connected');
   } catch (error) {
     if (/401|403|expired|invalid/i.test(error.message || '')) {
       syncState.session = null;
@@ -2170,6 +2188,12 @@ async function syncNow(manual) {
   }
 }
 
+async function ensureSelectedHouseholdForSync() {
+  if (!HOUSEHOLD_UI_ENABLED || !syncState.session) return null;
+  if (!householdState.loaded) await loadHouseholds();
+  return getSelectedHousehold();
+}
+
 async function ensureSyncSession() {
   const session = syncState.session;
   if (!session) return null;
@@ -2180,14 +2204,37 @@ async function ensureSyncSession() {
   return syncState.session;
 }
 
-async function fetchRemoteData(session) {
+async function fetchRemoteData(session, household) {
+  if (household) {
+    const householdId = encodeURIComponent(household.household_id);
+    const rows = await syncRequest(`/rest/v1/household_documents?household_id=eq.${householdId}&select=household_id,data,updated_at`, { method: 'GET' }, session.access_token);
+    const householdData = Array.isArray(rows) && rows.length ? normalizePlannerData(rows[0].data) : null;
+    if (householdData) return householdData;
+    // Preserve the existing pilot data when a household's new shared document
+    // has not been populated yet. The first successful push moves it to the
+    // household document; later syncs never write to planner_documents.
+    return fetchLegacyRemoteData(session);
+  }
+  return fetchLegacyRemoteData(session);
+}
+
+async function fetchLegacyRemoteData(session) {
   const userId = encodeURIComponent(session.user.id);
   const rows = await syncRequest(`/rest/v1/planner_documents?id=eq.${userId}&select=id,data,updated_at`, { method: 'GET' }, session.access_token);
   if (!Array.isArray(rows) || !rows.length) return null;
   return normalizePlannerData(rows[0].data);
 }
 
-async function pushRemoteData(session, data) {
+async function pushRemoteData(session, data, household) {
+  if (household) {
+    const householdId = encodeURIComponent(household.household_id);
+    await syncRequest(`/rest/v1/household_documents?household_id=eq.${householdId}`, {
+      method: 'PATCH',
+      body: { data, updated_at: new Date().toISOString() },
+      headers: { Prefer: 'return=minimal' },
+    }, session.access_token);
+    return;
+  }
   await syncRequest('/rest/v1/planner_documents', {
     method: 'POST',
     body: [{ id: session.user.id, data, updated_at: new Date().toISOString() }],
