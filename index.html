@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20261003-02" />
+    <link rel="stylesheet" href="styles.css?v=20261003-03" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -18,7 +18,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261003-02</p>
+            <p class="app-version">Version 20261003-03</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -336,6 +336,13 @@
           </div>
           <p class="sync-status" id="householdStatus" aria-live="polite"></p>
         </section>
+        <section class="platform-admin-section" id="platformAdminSection" hidden aria-labelledby="platformAdminTitle">
+          <p class="eyebrow">PLATFORM ADMIN</p>
+          <h3 id="platformAdminTitle">Household administration</h3>
+          <p class="sync-copy">This protected area is for system administration. Deleting a household permanently removes its members, invitations, and shared planner.</p>
+          <div class="platform-admin-list" id="platformAdminList"></div>
+          <p class="sync-status" id="platformAdminStatus" aria-live="polite"></p>
+        </section>
         <div class="settings-note"><span aria-hidden="true">✦</span> Local saving stays active even when the internet is unavailable.</div>
       </form>
     </dialog>
@@ -364,7 +371,7 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261003-02" defer></script>
-    <script src="app.js?v=20261003-02" defer></script>
+    <script src="recurrence.js?v=20261003-03" defer></script>
+    <script src="app.js?v=20261003-03" defer></script>
   </body>
 </html>

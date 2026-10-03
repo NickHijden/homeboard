@@ -333,6 +333,16 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .invitation-row strong { color: #4b4f59; font-size: 11px; }
 .invitation-row span { margin-top: 2px; color: #a1a5b0; font-size: 10px; }
 .household-empty { margin: 6px 0 0; color: #a1a5b0; font-size: 10px; }
+.platform-admin-section { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line); }
+.platform-admin-section h3 { margin: -1px 0 8px; font-family: 'Space Grotesk', sans-serif; font-size: 17px; }
+.platform-admin-list { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 11px; background: #fff4f4; }
+.platform-admin-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 43px; padding: 5px 0; border-bottom: 1px solid #f2dede; }
+.platform-admin-row:last-child { border-bottom: 0; }
+.platform-admin-row strong, .platform-admin-row span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-admin-row strong { color: #4b4f59; font-size: 11px; }
+.platform-admin-row span { margin-top: 2px; color: #a1a5b0; font-size: 10px; }
+.danger-button { flex: 0 0 auto; min-height: 34px; padding: 0 10px; border: 1px solid #f0b9bd; border-radius: 8px; background: #fff; color: #c75c63; cursor: pointer; font-size: 10px; font-weight: 700; }
+.danger-button:disabled { cursor: default; opacity: .55; }
 .settings-note { display: flex; gap: 8px; margin-top: 22px; padding: 12px; border-radius: 11px; background: var(--mint-soft); color: #318e73; font-size: 11px; line-height: 1.45; }
 .settings-note span { color: var(--mint); }
 .backup-form { width: min(720px, calc(100vw - 40px)); }

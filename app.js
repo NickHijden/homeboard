@@ -11,7 +11,7 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261003-02';
+const APP_VERSION = '20261003-03';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
@@ -86,6 +86,12 @@ const householdState = {
   loading: false,
 };
 let householdLoadPromise = null;
+const platformAdminState = {
+  isAdmin: false,
+  households: [],
+  loaded: false,
+  loading: false,
+};
 
 const els = {
   weekHeading: document.querySelector('#weekHeading'),
@@ -165,6 +171,9 @@ const els = {
   syncCopy: document.querySelector('#syncCopy'),
   syncConfigFields: document.querySelector('#syncConfigFields'),
   householdSection: document.querySelector('#householdSection'),
+  platformAdminSection: document.querySelector('#platformAdminSection'),
+  platformAdminList: document.querySelector('#platformAdminList'),
+  platformAdminStatus: document.querySelector('#platformAdminStatus'),
   householdWorkspace: document.querySelector('#householdWorkspace'),
   householdAuthStatus: document.querySelector('#householdAuthStatus'),
   householdSelect: document.querySelector('#householdSelect'),
@@ -302,6 +311,7 @@ function bindEvents() {
     openDialog(els.settingsDialog);
     renderHouseholdUI();
     if (syncState.session) loadHouseholds(true);
+    if (syncState.session) loadPlatformAdminUI(true);
   });
   if (els.householdSelect) els.householdSelect.addEventListener('change', () => {
     householdState.selectedHouseholdId = els.householdSelect.value || '';
@@ -316,6 +326,7 @@ function bindEvents() {
   if (els.acceptInvitationButton) els.acceptInvitationButton.addEventListener('click', acceptInvitationFromUI);
   if (els.invitationList) els.invitationList.addEventListener('click', handleInvitationListClick);
   if (els.householdMemberList) els.householdMemberList.addEventListener('click', handleHouseholdMemberListClick);
+  if (els.platformAdminList) els.platformAdminList.addEventListener('click', handlePlatformAdminListClick);
 
   // iPad pauses timers while the Home Screen app is in the background. When
   // it becomes visible again, immediately refresh both the app shell and the
@@ -330,6 +341,7 @@ function bindEvents() {
     if (syncState.session) {
       syncNow(false);
       loadHouseholds(true);
+      loadPlatformAdminUI(true);
     }
   });
 }
@@ -1785,6 +1797,7 @@ function initializeSync() {
   if (syncState.session && syncState.config.url && syncState.config.key) {
     startSyncPolling();
     loadHouseholds();
+    loadPlatformAdminUI();
     syncNow(false);
   }
 }
@@ -1816,7 +1829,11 @@ function saveSyncConfig() {
     householdState.membersHouseholdId = '';
     householdState.selectedHouseholdId = '';
     householdState.loaded = false;
+    platformAdminState.isAdmin = false;
+    platformAdminState.households = [];
+    platformAdminState.loaded = false;
     saveHouseholdSelection();
+    renderPlatformAdminUI();
   }
   localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(syncState.config));
   if (syncState.session && !connectionChanged) {
@@ -1852,6 +1869,7 @@ async function signIn(createAccount) {
     setSyncSession(response);
     startSyncPolling();
     await loadHouseholds(true);
+    await loadPlatformAdminUI(true);
     await syncNow(true);
     els.syncPassword.value = '';
   } catch (error) {
@@ -1869,7 +1887,11 @@ function signOut() {
   householdState.membersHouseholdId = '';
   householdState.selectedHouseholdId = '';
   householdState.loaded = false;
+  platformAdminState.isAdmin = false;
+  platformAdminState.households = [];
+  platformAdminState.loaded = false;
   saveHouseholdSelection();
+  renderPlatformAdminUI();
   renderHouseholdUI();
   renderSyncStatus('Signed out. Local planner data is still available.');
 }
@@ -2054,6 +2076,91 @@ function renderHouseholdMembers() {
       ${removeButton || leaveButton}
     </div>`;
   }).join('');
+}
+
+async function loadPlatformAdminUI(force = false) {
+  if (!HOUSEHOLD_UI_ENABLED || !syncState.session || !syncState.config.url || !syncState.config.key) {
+    platformAdminState.isAdmin = false;
+    platformAdminState.households = [];
+    platformAdminState.loaded = false;
+    renderPlatformAdminUI();
+    return;
+  }
+  if (platformAdminState.loading || (platformAdminState.loaded && !force)) return;
+  platformAdminState.loading = true;
+  try {
+    const result = await householdRpc('is_platform_admin', {});
+    const isAdmin = result === true
+      || result === 'true'
+      || (Array.isArray(result) && result[0] === true)
+      || Boolean(result && result.is_platform_admin === true);
+    platformAdminState.isAdmin = isAdmin;
+    platformAdminState.households = isAdmin
+      ? (await householdRpc('list_platform_households', {})) || []
+      : [];
+    platformAdminState.loaded = true;
+    if (isAdmin) setPlatformAdminStatus('Platform administrator access enabled.', 'connected');
+  } catch (error) {
+    platformAdminState.isAdmin = false;
+    platformAdminState.households = [];
+    platformAdminState.loaded = true;
+  } finally {
+    platformAdminState.loading = false;
+    renderPlatformAdminUI();
+  }
+}
+
+function setPlatformAdminStatus(message, type) {
+  if (!els.platformAdminStatus) return;
+  els.platformAdminStatus.textContent = message || '';
+  els.platformAdminStatus.className = `sync-status${type ? ` ${type}` : ''}`;
+}
+
+function renderPlatformAdminUI() {
+  if (!els.platformAdminSection || !els.platformAdminList) return;
+  const visible = Boolean(platformAdminState.isAdmin && syncState.session);
+  els.platformAdminSection.hidden = !visible;
+  if (!visible) {
+    els.platformAdminList.innerHTML = '';
+    return;
+  }
+  if (!platformAdminState.households.length) {
+    els.platformAdminList.innerHTML = '<p class="household-empty">No households found.</p>';
+    return;
+  }
+  els.platformAdminList.innerHTML = platformAdminState.households.map((household) => {
+    const memberCount = Number(household.member_count) || 0;
+    return `<div class="platform-admin-row">
+      <div><strong>${escapeHtml(household.household_name)}</strong><span>${memberCount} member${memberCount === 1 ? '' : 's'} · created ${escapeHtml(formatLongDate(new Date(household.created_at)))}</span></div>
+      <button class="danger-button" type="button" data-admin-action="delete" data-household-id="${escapeAttribute(household.household_id)}">Delete</button>
+    </div>`;
+  }).join('');
+}
+
+async function handlePlatformAdminListClick(event) {
+  const button = event.target.closest('[data-admin-action="delete"]');
+  if (!button) return;
+  const household = platformAdminState.households.find((item) => item.household_id === button.dataset.householdId);
+  if (!household) return;
+  if (!window.confirm(`Delete the household “${household.household_name}” permanently?`)) return;
+  const confirmation = window.prompt(`Type the household name exactly to confirm deletion:\n${household.household_name}`);
+  if (confirmation !== household.household_name) {
+    setPlatformAdminStatus('Deletion cancelled: the household name did not match.', 'error');
+    return;
+  }
+  try {
+    platformAdminState.loading = true;
+    renderPlatformAdminUI();
+    await householdRpc('delete_household_for_admin', { target_household_id: household.household_id });
+    await loadHouseholds(true);
+    await loadPlatformAdminUI(true);
+    setPlatformAdminStatus(`Household “${household.household_name}” was deleted.`, 'connected');
+  } catch (error) {
+    setPlatformAdminStatus(error.message || 'The household could not be deleted.', 'error');
+  } finally {
+    platformAdminState.loading = false;
+    renderPlatformAdminUI();
+  }
 }
 
 async function loadHouseholdInvitations() {
