@@ -11,7 +11,7 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261003-01';
+const APP_VERSION = '20261003-02';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
@@ -301,6 +301,7 @@ function bindEvents() {
   if (els.householdButton) els.householdButton.addEventListener('click', () => {
     openDialog(els.settingsDialog);
     renderHouseholdUI();
+    if (syncState.session) loadHouseholds(true);
   });
   if (els.householdSelect) els.householdSelect.addEventListener('change', () => {
     householdState.selectedHouseholdId = els.householdSelect.value || '';
@@ -326,7 +327,10 @@ function bindEvents() {
         if (registration && typeof registration.update === 'function') registration.update();
       }).catch(() => {});
     }
-    if (syncState.session) syncNow(false);
+    if (syncState.session) {
+      syncNow(false);
+      loadHouseholds(true);
+    }
   });
 }
 
