@@ -11,7 +11,7 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261002-03-staging';
+const APP_VERSION = '20261003-01-staging';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
@@ -79,6 +79,8 @@ const syncState = {
 const householdState = {
   households: [],
   invitations: [],
+  members: [],
+  membersHouseholdId: '',
   selectedHouseholdId: loadHouseholdSelection(),
   loaded: false,
   loading: false,
@@ -166,6 +168,7 @@ const els = {
   householdWorkspace: document.querySelector('#householdWorkspace'),
   householdAuthStatus: document.querySelector('#householdAuthStatus'),
   householdSelect: document.querySelector('#householdSelect'),
+  householdMemberList: document.querySelector('#householdMemberList'),
   householdNameInput: document.querySelector('#householdNameInput'),
   createHouseholdButton: document.querySelector('#createHouseholdButton'),
   householdInvitePanel: document.querySelector('#householdInvitePanel'),
@@ -302,6 +305,7 @@ function bindEvents() {
   if (els.householdSelect) els.householdSelect.addEventListener('change', () => {
     householdState.selectedHouseholdId = els.householdSelect.value || '';
     saveHouseholdSelection();
+    loadHouseholdMembers();
     loadHouseholdInvitations();
     renderHouseholdUI();
   });
@@ -310,6 +314,7 @@ function bindEvents() {
   if (els.copyInvitationButton) els.copyInvitationButton.addEventListener('click', copyInvitationLink);
   if (els.acceptInvitationButton) els.acceptInvitationButton.addEventListener('click', acceptInvitationFromUI);
   if (els.invitationList) els.invitationList.addEventListener('click', handleInvitationListClick);
+  if (els.householdMemberList) els.householdMemberList.addEventListener('click', handleHouseholdMemberListClick);
 
   // iPad pauses timers while the Home Screen app is in the background. When
   // it becomes visible again, immediately refresh both the app shell and the
@@ -1803,6 +1808,8 @@ function saveSyncConfig() {
     localStorage.removeItem(SYNC_SESSION_KEY);
     householdState.households = [];
     householdState.invitations = [];
+    householdState.members = [];
+    householdState.membersHouseholdId = '';
     householdState.selectedHouseholdId = '';
     householdState.loaded = false;
     saveHouseholdSelection();
@@ -1854,6 +1861,8 @@ function signOut() {
   localStorage.removeItem(SYNC_SESSION_KEY);
   householdState.households = [];
   householdState.invitations = [];
+  householdState.members = [];
+  householdState.membersHouseholdId = '';
   householdState.selectedHouseholdId = '';
   householdState.loaded = false;
   saveHouseholdSelection();
@@ -1931,6 +1940,7 @@ function renderHouseholdUI() {
   if (els.acceptInvitationButton) els.acceptInvitationButton.disabled = householdState.loading;
   if (els.householdInvitePanel) els.householdInvitePanel.hidden = !selected || selected.role !== 'owner';
   if (els.invitationLinkBox && !els.invitationLinkInput.value) els.invitationLinkBox.hidden = true;
+  renderHouseholdMembers();
   renderInvitationList();
 }
 
@@ -1962,6 +1972,7 @@ async function loadHouseholds(force = false) {
         saveHouseholdSelection();
       }
       householdState.invitations = [];
+      await loadHouseholdMembers();
       await loadHouseholdInvitations();
       householdState.loaded = true;
       setHouseholdStatus(householdState.households.length ? 'Household account ready.' : 'Create your household or join one with an invitation.', 'connected');
@@ -1969,6 +1980,8 @@ async function loadHouseholds(force = false) {
     } catch (error) {
       householdState.households = [];
       householdState.invitations = [];
+      householdState.members = [];
+      householdState.membersHouseholdId = '';
       householdState.loaded = true;
       setHouseholdStatus(IS_DEVELOPMENT_HOST
         ? 'Run household-invitations-setup.sql in Homeboard Development, then refresh this screen.'
@@ -1984,6 +1997,59 @@ async function loadHouseholds(force = false) {
   } finally {
     householdLoadPromise = null;
   }
+}
+
+async function loadHouseholdMembers() {
+  const selected = getSelectedHousehold();
+  const householdId = selected && selected.household_id;
+  if (!selected || !syncState.session) {
+    householdState.members = [];
+    householdState.membersHouseholdId = '';
+    renderHouseholdMembers();
+    return;
+  }
+  try {
+    const rows = await householdRpc('list_household_members', { target_household_id: householdId });
+    if (getSelectedHousehold() && getSelectedHousehold().household_id === householdId) {
+      householdState.members = Array.isArray(rows) ? rows : [];
+      householdState.membersHouseholdId = householdId;
+    }
+  } catch (error) {
+    if (getSelectedHousehold() && getSelectedHousehold().household_id === householdId) {
+      householdState.members = [];
+      householdState.membersHouseholdId = householdId;
+    }
+  }
+  renderHouseholdMembers();
+}
+
+function renderHouseholdMembers() {
+  if (!els.householdMemberList) return;
+  const selected = getSelectedHousehold();
+  if (!selected || householdState.membersHouseholdId !== selected.household_id) {
+    els.householdMemberList.innerHTML = '<p class="household-empty">No member details available yet.</p>';
+    return;
+  }
+  if (!householdState.members.length) {
+    els.householdMemberList.innerHTML = '<p class="household-empty">No members found.</p>';
+    return;
+  }
+  const currentUserId = syncState.session && syncState.session.user && syncState.session.user.id;
+  els.householdMemberList.innerHTML = householdState.members.map((member) => {
+    const isCurrentUser = member.user_id === currentUserId;
+    const label = isCurrentUser ? `${member.email || 'Homeboard account'} · You` : (member.email || 'Homeboard account');
+    const role = member.role === 'owner' ? 'Owner' : 'Member';
+    const removeButton = selected.role === 'owner' && !isCurrentUser && member.role !== 'owner'
+      ? `<button class="subtle-button" type="button" data-member-action="remove" data-member-id="${escapeAttribute(member.user_id)}">Remove</button>`
+      : '';
+    const leaveButton = isCurrentUser && member.role === 'member'
+      ? `<button class="subtle-button" type="button" data-member-action="leave">Leave</button>`
+      : '';
+    return `<div class="household-member-row">
+      <div><strong>${escapeHtml(label)}</strong><span>${role}</span></div>
+      ${removeButton || leaveButton}
+    </div>`;
+  }).join('');
 }
 
 async function loadHouseholdInvitations() {
@@ -2115,6 +2181,50 @@ async function handleInvitationListClick(event) {
   } finally {
     householdState.loading = false;
     renderHouseholdUI();
+  }
+}
+
+async function handleHouseholdMemberListClick(event) {
+  const button = event.target.closest('[data-member-action]');
+  if (!button) return;
+  const selected = getSelectedHousehold();
+  if (!selected) return;
+  const action = button.dataset.memberAction;
+  const member = householdState.members.find((item) => item.user_id === button.dataset.memberId);
+  const memberLabel = member && member.email ? member.email : 'this member';
+  if (action === 'remove') {
+    if (!window.confirm(`Remove ${memberLabel} from this household?`)) return;
+    try {
+      householdState.loading = true;
+      renderHouseholdUI();
+      await householdRpc('remove_household_member', {
+        target_household_id: selected.household_id,
+        target_user_id: button.dataset.memberId,
+      });
+      await loadHouseholds(true);
+      setHouseholdStatus('Member removed from the household.', 'connected');
+    } catch (error) {
+      setHouseholdStatus(error.message || 'The member could not be removed.', 'error');
+    } finally {
+      householdState.loading = false;
+      renderHouseholdUI();
+    }
+    return;
+  }
+  if (action === 'leave') {
+    if (!window.confirm('Leave this household? You will need a new invitation to join again.')) return;
+    try {
+      householdState.loading = true;
+      renderHouseholdUI();
+      await householdRpc('leave_household', { target_household_id: selected.household_id });
+      await loadHouseholds(true);
+      setHouseholdStatus('You left the household.', 'connected');
+    } catch (error) {
+      setHouseholdStatus(error.message || 'You could not leave the household.', 'error');
+    } finally {
+      householdState.loading = false;
+      renderHouseholdUI();
+    }
   }
 }
 
