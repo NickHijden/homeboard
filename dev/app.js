@@ -11,7 +11,7 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261003-03-staging';
+const APP_VERSION = '20261005-01-staging';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
@@ -178,6 +178,9 @@ const els = {
   householdAuthStatus: document.querySelector('#householdAuthStatus'),
   householdSelect: document.querySelector('#householdSelect'),
   householdMemberList: document.querySelector('#householdMemberList'),
+  householdRenamePanel: document.querySelector('#householdRenamePanel'),
+  householdRenameInput: document.querySelector('#householdRenameInput'),
+  renameHouseholdButton: document.querySelector('#renameHouseholdButton'),
   householdNameInput: document.querySelector('#householdNameInput'),
   createHouseholdButton: document.querySelector('#createHouseholdButton'),
   householdInvitePanel: document.querySelector('#householdInvitePanel'),
@@ -321,6 +324,7 @@ function bindEvents() {
     renderHouseholdUI();
   });
   if (els.createHouseholdButton) els.createHouseholdButton.addEventListener('click', createHouseholdFromUI);
+  if (els.renameHouseholdButton) els.renameHouseholdButton.addEventListener('click', renameHouseholdFromUI);
   if (els.createInvitationButton) els.createInvitationButton.addEventListener('click', createInvitationFromUI);
   if (els.copyInvitationButton) els.copyInvitationButton.addEventListener('click', copyInvitationLink);
   if (els.acceptInvitationButton) els.acceptInvitationButton.addEventListener('click', acceptInvitationFromUI);
@@ -1965,6 +1969,11 @@ function renderHouseholdUI() {
   if (els.createInvitationButton) els.createInvitationButton.disabled = householdState.loading || !selected || selected.role !== 'owner';
   if (els.acceptInvitationButton) els.acceptInvitationButton.disabled = householdState.loading;
   if (els.householdInvitePanel) els.householdInvitePanel.hidden = !selected || selected.role !== 'owner';
+  if (els.householdRenamePanel) els.householdRenamePanel.hidden = !selected || selected.role !== 'owner';
+  if (els.householdRenameInput && selected && document.activeElement !== els.householdRenameInput) {
+    els.householdRenameInput.value = selected.household_name || '';
+  }
+  if (els.renameHouseholdButton) els.renameHouseholdButton.disabled = householdState.loading || !selected || selected.role !== 'owner';
   if (els.invitationLinkBox && !els.invitationLinkInput.value) els.invitationLinkBox.hidden = true;
   renderHouseholdMembers();
   renderInvitationList();
@@ -2210,6 +2219,34 @@ async function createHouseholdFromUI() {
     setHouseholdStatus('Household created. You can now invite your partner.', 'connected');
   } catch (error) {
     setHouseholdStatus(error.message || 'The household could not be created.', 'error');
+    householdState.loading = false;
+    renderHouseholdUI();
+  }
+}
+
+async function renameHouseholdFromUI() {
+  const selected = getSelectedHousehold();
+  const name = String(els.householdRenameInput && els.householdRenameInput.value || '').trim();
+  if (!selected || selected.role !== 'owner') {
+    setHouseholdStatus('Only the household owner can rename this household.', 'error');
+    return;
+  }
+  if (!name) {
+    setHouseholdStatus('Enter a household name first.', 'error');
+    return;
+  }
+  try {
+    householdState.loading = true;
+    renderHouseholdUI();
+    await householdRpc('rename_household', {
+      target_household_id: selected.household_id,
+      new_name: name,
+    });
+    await loadHouseholds(true);
+    setHouseholdStatus('Household name updated.', 'connected');
+  } catch (error) {
+    setHouseholdStatus(error.message || 'The household name could not be updated.', 'error');
+  } finally {
     householdState.loading = false;
     renderHouseholdUI();
   }
