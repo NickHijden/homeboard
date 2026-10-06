@@ -323,6 +323,7 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .household-member-row strong, .household-member-row span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .household-member-row strong { color: #4b4f59; font-size: 11px; }
 .household-member-row span { margin-top: 2px; color: #a1a5b0; font-size: 10px; }
+.household-member-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
 .household-rename-panel { margin: 12px 0 4px; padding-top: 12px; border-top: 1px solid #ececf2; }
 .household-invite-panel, .household-accept-panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
 .invitation-link-box { margin-top: 4px; padding: 10px; border-radius: 11px; background: var(--mint-soft); }

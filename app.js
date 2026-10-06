@@ -11,7 +11,7 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261006-01';
+const APP_VERSION = '20261006-02';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
@@ -2077,12 +2077,15 @@ function renderHouseholdMembers() {
     const removeButton = selected.role === 'owner' && !isCurrentUser && member.role !== 'owner'
       ? `<button class="subtle-button" type="button" data-member-action="remove" data-member-id="${escapeAttribute(member.user_id)}">Remove</button>`
       : '';
+    const transferButton = selected.role === 'owner' && !isCurrentUser && member.role === 'member'
+      ? `<button class="subtle-button" type="button" data-member-action="transfer" data-member-id="${escapeAttribute(member.user_id)}">Make owner</button>`
+      : '';
     const leaveButton = isCurrentUser && member.role === 'member'
       ? `<button class="subtle-button" type="button" data-member-action="leave">Leave</button>`
       : '';
     return `<div class="household-member-row">
       <div><strong>${escapeHtml(label)}</strong><span>${role}</span></div>
-      ${removeButton || leaveButton}
+      <div class="household-member-actions">${transferButton}${removeButton}${leaveButton}</div>
     </div>`;
   }).join('');
 }
@@ -2354,6 +2357,25 @@ async function handleHouseholdMemberListClick(event) {
       setHouseholdStatus('Member removed from the household.', 'connected');
     } catch (error) {
       setHouseholdStatus(error.message || 'The member could not be removed.', 'error');
+    } finally {
+      householdState.loading = false;
+      renderHouseholdUI();
+    }
+    return;
+  }
+  if (action === 'transfer') {
+    if (!window.confirm(`Make ${memberLabel} the household owner? You will become a regular member.`)) return;
+    try {
+      householdState.loading = true;
+      renderHouseholdUI();
+      await householdRpc('transfer_household_ownership', {
+        target_household_id: selected.household_id,
+        target_user_id: button.dataset.memberId,
+      });
+      await loadHouseholds(true);
+      setHouseholdStatus(`${memberLabel} is now the household owner.`, 'connected');
+    } catch (error) {
+      setHouseholdStatus(error.message || 'Ownership could not be transferred.', 'error');
     } finally {
       householdState.loading = false;
       renderHouseholdUI();
