@@ -11,7 +11,7 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261005-01-staging';
+const APP_VERSION = '20261006-01-staging';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
@@ -2243,6 +2243,7 @@ async function renameHouseholdFromUI() {
       new_name: name,
     });
     await loadHouseholds(true);
+    await loadPlatformAdminUI(true);
     setHouseholdStatus('Household name updated.', 'connected');
   } catch (error) {
     setHouseholdStatus(error.message || 'The household name could not be updated.', 'error');
