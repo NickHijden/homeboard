@@ -30,7 +30,7 @@ See Supabase’s [dashboard deployment guide](https://supabase.com/docs/guides/f
 
 ## 3. Validate with the synthetic Development account
 
-Use [Homeboard staging](https://nickhijden.github.io/homeboard/dev/). First export from Settings → Your account & data. Confirm the account, privacy acknowledgement and expected planner records are present, without passwords, session tokens or invitation tokens. Device data is included only if explicitly checked. The existing planner backup remains the restorable format.
+Use [Homeboard staging](https://nickhijden.github.io/homeboard/dev/). First open Settings → Advanced account options at the bottom, then choose Export my data. This section is collapsed by default to keep account export separate from the everyday planner backup. Confirm the account, privacy acknowledgement and expected planner records are present, without passwords, session tokens or invitation tokens. Device data is included only if explicitly checked. The existing planner backup remains the restorable format.
 
 For destructive validation use a disposable Development account, never the original household account. Confirm its email first. Export before deleting. Test wrong-password rejection and cancellation, then delete the disposable account and verify its Auth user, private planner and sole-member households are gone. A remaining member’s shared planner must survive. A shared owner must transfer ownership before deletion.
 

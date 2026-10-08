@@ -67,6 +67,7 @@ async function setup(t, options = {}) {
   await page.goto(origin);
   await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('Synced just now'));
   await page.locator('#settingsButton').click();
+  await page.locator('#advancedAccountOptions > summary').click();
   return { page, context, requests };
 }
 async function review(page) {

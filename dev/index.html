@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20261008-04-staging" />
+    <link rel="stylesheet" href="styles.css?v=20261008-05-staging" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -18,7 +18,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261008-04-staging</p>
+            <p class="app-version">Version 20261008-05-staging</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -364,18 +364,6 @@
           <div class="platform-admin-list" id="platformAdminList"></div>
           <p class="sync-status" id="platformAdminStatus" aria-live="polite"></p>
         </section>
-        <section class="account-section" aria-labelledby="accountDataTitle">
-          <p class="eyebrow">Your account &amp; data</p>
-          <h3 id="accountDataTitle">Export or delete your account</h3>
-          <p class="settings-copy">Download your account details, policy acknowledgement, invitations, private planner and shared planners you can access. Shared planners may contain other members’ entries. Keep the downloaded file private.</p>
-          <label class="account-checkbox"><input id="includeDeviceData" type="checkbox" /> Include this device’s planner, including unsynced entries</label>
-          <p class="privacy-hint">The account export is for reviewing your data. Use Download backup above if you want a file you can restore.</p>
-          <div class="settings-actions">
-            <button class="secondary-button" id="exportAccountButton" type="button" disabled>Export my data</button>
-            <button class="danger-button" id="deleteAccountButton" type="button" disabled>Delete my account…</button>
-          </div>
-          <p class="sync-status" id="accountDataStatus" role="status">Sign in to export or delete your account.</p>
-        </section>
         <section class="privacy-section" aria-labelledby="privacySectionTitle">
           <p class="eyebrow">PRIVACY &amp; USE</p>
           <h3 id="privacySectionTitle">Keep household information safe</h3>
@@ -384,6 +372,19 @@
           <p class="privacy-links"><a href="privacy.html#acceptable-use" target="_blank" rel="noopener">Acceptable use</a> · <a href="privacy.html#terms-of-use" target="_blank" rel="noopener">Terms of Use</a> · <a href="privacy.html#privacy-notice" target="_blank" rel="noopener">Privacy Notice</a></p>
           <p class="privacy-hint">Links open in a new tab. Draft wording, pending legal review.</p>
         </section>
+        <details class="account-section" id="advancedAccountOptions">
+          <summary>Advanced account options</summary>
+          <div class="account-options-content">
+            <p class="settings-copy">Download a copy of your account information and shared planners for your records. Shared planners may include other members’ entries; keep the file private.</p>
+            <p class="privacy-hint">To save a planner you can restore later, use Download backup at the top of Settings.</p>
+            <label class="account-checkbox"><input id="includeDeviceData" type="checkbox" /> Include the planner saved on this device, including unsynced entries</label>
+            <div class="settings-actions">
+              <button class="secondary-button" id="exportAccountButton" type="button" disabled>Export my data</button>
+              <button class="danger-button" id="deleteAccountButton" type="button" disabled>Delete my account…</button>
+            </div>
+            <p class="sync-status" id="accountDataStatus" role="status">Sign in to export or delete your account.</p>
+          </div>
+        </details>
         <div class="settings-note"><span aria-hidden="true">✦</span> Local saving stays active even when the internet is unavailable.</div>
       </form>
     </dialog>
@@ -437,7 +438,7 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261008-04-staging" defer></script>
-    <script src="app.js?v=20261008-04-staging" defer></script>
+    <script src="recurrence.js?v=20261008-05-staging" defer></script>
+    <script src="app.js?v=20261008-05-staging" defer></script>
   </body>
 </html>

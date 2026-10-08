@@ -248,7 +248,11 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .task-dialog { width: 490px; max-height: calc(100vh - 28px); overflow-y: auto; }
 .settings-dialog { width: 430px; max-height: calc(100vh - 28px); overflow-y: auto; }
 .account-delete-dialog { width: 510px; max-height: calc(100vh - 28px); overflow-y: auto; }
-.account-section { border-top: 1px solid var(--line, #e6e8ed); margin-top: 24px; padding-top: 24px; }
+.account-section { border-top: 1px solid var(--line, #e6e8ed); margin-top: 24px; padding-top: 8px; }
+.account-section > summary { min-height: 44px; padding: 14px 0; color: var(--muted); font-size: 12px; cursor: pointer; }
+.account-section > summary:focus-visible { outline: 2px solid var(--violet); outline-offset: 3px; border-radius: 4px; }
+.account-options-content { padding-top: 12px; }
+.account-options-content > .settings-copy { margin-top: 0; }
 .account-checkbox { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.5; margin: 14px 0; }
 .account-checkbox input { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 2px; }
 .account-household-preview { font-size: 13px; line-height: 1.6; padding-left: 20px; }
