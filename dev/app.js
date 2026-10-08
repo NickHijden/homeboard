@@ -11,7 +11,9 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261006-02-staging';
+const APP_VERSION = '20261008-02-staging';
+// Bump independently of the app when the acknowledged wording changes.
+const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
@@ -74,6 +76,7 @@ const syncState = {
   queueTimer: null,
   busy: false,
   pending: false,
+  authenticating: false,
 };
 
 const householdState = {
@@ -165,6 +168,8 @@ const els = {
   saveSyncConfigButton: document.querySelector('#saveSyncConfigButton'),
   syncSignInButton: document.querySelector('#syncSignInButton'),
   syncSignUpButton: document.querySelector('#syncSignUpButton'),
+  signupAcknowledgement: document.querySelector('#signupAcknowledgement'),
+  signupAcknowledgementPanel: document.querySelector('#signupAcknowledgementPanel'),
   syncNowButton: document.querySelector('#syncNowButton'),
   syncSignOutButton: document.querySelector('#syncSignOutButton'),
   syncStatus: document.querySelector('#syncStatus'),
@@ -308,6 +313,10 @@ function bindEvents() {
   if (els.saveSyncConfigButton) els.saveSyncConfigButton.addEventListener('click', saveSyncConfig);
   if (els.syncSignInButton) els.syncSignInButton.addEventListener('click', () => signIn(false));
   if (els.syncSignUpButton) els.syncSignUpButton.addEventListener('click', () => signIn(true));
+  if (els.syncEmail) els.syncEmail.addEventListener('input', resetSignupAcknowledgement);
+  if (els.signupAcknowledgement) els.signupAcknowledgement.addEventListener('change', () => {
+    els.signupAcknowledgement.removeAttribute('aria-invalid');
+  });
   if (els.syncNowButton) els.syncNowButton.addEventListener('click', () => syncNow(true));
   if (els.syncSignOutButton) els.syncSignOutButton.addEventListener('click', signOut);
   if (els.householdButton) els.householdButton.addEventListener('click', () => {
@@ -1530,7 +1539,7 @@ function handleListClick(event) {
   const item = state.data[listName].find((entry) => entry.id === itemId);
   if (!item) return;
   if (target.dataset.listAction === 'edit') {
-    const editedTitle = window.prompt('Edit item', item.title);
+    const editedTitle = window.prompt('Edit item\n\nDo not enter payment-card details, passwords, government identification numbers, medical records, or other highly sensitive information.', item.title);
     if (editedTitle === null) return;
     const nextTitle = editedTitle.trim();
     if (!nextTitle) {
@@ -1790,6 +1799,7 @@ function saveHouseholdSelection() {
 }
 
 function initializeSync() {
+  resetSignupAcknowledgement();
   if (IS_DEVELOPMENT_HOST && els.syncProjectUrl) els.syncProjectUrl.value = syncState.config.url;
   if (IS_DEVELOPMENT_HOST && els.syncPublishableKey) els.syncPublishableKey.value = syncState.config.key;
   if (els.syncEmail) els.syncEmail.value = loadSyncEmail() || (syncState.session && syncState.session.user && syncState.session.user.email) || '';
@@ -1824,6 +1834,7 @@ function saveSyncConfig() {
   const connectionChanged = syncState.config.url !== url || syncState.config.key !== key;
   syncState.config = { url, key };
   if (connectionChanged) {
+    resetSignupAcknowledgement();
     syncState.session = null;
     stopSyncPolling();
     localStorage.removeItem(SYNC_SESSION_KEY);
@@ -1851,6 +1862,15 @@ function saveSyncConfig() {
 }
 
 async function signIn(createAccount) {
+  if (syncState.authenticating) return;
+  if (createAccount && (!els.signupAcknowledgement || !els.signupAcknowledgement.checked)) {
+    setSyncStatus('Read and agree to the Terms of Use and acknowledge the Privacy Notice before creating an account.', 'error');
+    if (els.signupAcknowledgement) {
+      els.signupAcknowledgement.setAttribute('aria-invalid', 'true');
+      els.signupAcknowledgement.focus();
+    }
+    return;
+  }
   if (!syncState.config.url || !syncState.config.key) {
     setSyncStatus('Save the Supabase connection first.', 'error');
     return;
@@ -1861,13 +1881,27 @@ async function signIn(createAccount) {
     setSyncStatus('Enter an email and a password of at least 8 characters.', 'error');
     return;
   }
-  localStorage.setItem(SYNC_EMAIL_KEY, email);
+  syncState.authenticating = true;
   setSyncStatus(createAccount ? 'Creating account…' : 'Signing in…');
   try {
+    localStorage.setItem(SYNC_EMAIL_KEY, email);
     const path = createAccount ? '/auth/v1/signup' : '/auth/v1/token?grant_type=password';
-    const response = await syncRequest(path, { method: 'POST', body: { email, password } });
+    const body = { email, password };
+    if (createAccount) {
+      // Supabase stores signup data on the account, including when email
+      // confirmation is required. This is user metadata, not an audit log.
+      body.data = { homeboard_acknowledgement: {
+        terms_version: PRIVACY_TERMS_VERSION,
+        privacy_notice_version: PRIVACY_TERMS_VERSION,
+        acceptable_use_version: PRIVACY_TERMS_VERSION,
+        acknowledged_at: nowIso(),
+      } };
+    }
+    const response = await syncRequest(path, { method: 'POST', body });
+    resetSignupAcknowledgement();
+    els.syncPassword.value = '';
     if (!response.access_token) {
-      setSyncStatus('Account created. Check the confirmation email, then sign in.', 'connected');
+      setSyncStatus('Signup request received. If confirmation is required, check your email before signing in.', 'connected');
       return;
     }
     setSyncSession(response);
@@ -1875,13 +1909,32 @@ async function signIn(createAccount) {
     await loadHouseholds(true);
     await loadPlatformAdminUI(true);
     await syncNow(true);
-    els.syncPassword.value = '';
   } catch (error) {
     setSyncStatus(error.message || 'Cloud sign-in failed.', 'error');
+  } finally {
+    syncState.authenticating = false;
+    renderAuthControls();
   }
 }
 
+function resetSignupAcknowledgement() {
+  if (!els.signupAcknowledgement) return;
+  els.signupAcknowledgement.checked = false;
+  els.signupAcknowledgement.removeAttribute('aria-invalid');
+}
+
+function renderAuthControls() {
+  const signedIn = Boolean(syncState.session);
+  if (els.signupAcknowledgementPanel) els.signupAcknowledgementPanel.hidden = signedIn;
+  if (els.syncSignUpButton) els.syncSignUpButton.hidden = signedIn;
+  [els.syncEmail, els.syncPassword, els.syncSignInButton, els.syncSignUpButton,
+    els.syncSignOutButton, els.saveSyncConfigButton, els.signupAcknowledgement].forEach((control) => {
+    if (control) control.disabled = syncState.authenticating;
+  });
+}
+
 function signOut() {
+  resetSignupAcknowledgement();
   stopSyncPolling();
   syncState.session = null;
   localStorage.removeItem(SYNC_SESSION_KEY);
@@ -1922,6 +1975,7 @@ function stopSyncPolling() {
 }
 
 function renderSyncStatus(message, type) {
+  renderAuthControls();
   if (!els.syncStatus) return;
   if (message) els.syncStatus.textContent = message;
   else if (!syncState.config.url || !syncState.config.key) els.syncStatus.textContent = 'Cloud sync is not connected.';

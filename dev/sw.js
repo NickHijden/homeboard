@@ -1,4 +1,4 @@
-const APP_VERSION = '20261006-02-staging';
+const APP_VERSION = '20261008-02-staging';
 const STAGING_PATH_PREFIX = '/homeboard/dev/';
 const IS_STAGING = self.location.pathname === '/homeboard/dev' || self.location.pathname.startsWith(STAGING_PATH_PREFIX);
 const CACHE_NAME = `${IS_STAGING ? 'homeboard-staging-shell' : 'homeboard-shell'}-${APP_VERSION}`;
@@ -6,6 +6,7 @@ const CACHE_PREFIX = IS_STAGING ? 'homeboard-staging-shell-' : 'homeboard-shell-
 const SHELL = [
   './',
   './index.html',
+  './privacy.html',
   `./styles.css?v=${APP_VERSION}`,
   `./recurrence.js?v=${APP_VERSION}`,
   `./app.js?v=${APP_VERSION}`,
