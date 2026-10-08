@@ -475,7 +475,8 @@ begin
 
   insert into public.household_members (household_id, user_id, role)
   values (invitation.household_id, caller_id, 'member')
-  on conflict (household_id, user_id) do nothing;
+  -- The RETURNS TABLE output variable household_id shadows the column name.
+  on conflict on constraint household_members_pkey do nothing;
 
   update public.household_invitations
   set accepted_at = now(), accepted_by = caller_id

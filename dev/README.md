@@ -39,6 +39,8 @@ The draft public sales preview is available in development at `/homeboard/dev/ma
 
 The development-only household account schema is in [`supabase/households-setup.sql`](supabase/households-setup.sql), and the secure invitation functions are in [`supabase/household-invitations-setup.sql`](supabase/household-invitations-setup.sql), with design and rollout notes in [`PHASE-3-ONBOARDING.md`](PHASE-3-ONBOARDING.md). Run both SQL files only in the separate Homeboard Development Supabase project after review. They do not change the current production board or migrate existing data.
 
+For an existing installation showing `column reference "household_id" is ambiguous` when joining, apply only [`supabase/invitation-acceptance-fix.sql`](supabase/invitation-acceptance-fix.sql). See [`INVITATION-ACCEPTANCE-FIX.md`](INVITATION-ACCEPTANCE-FIX.md) for the operator steps and validation results.
+
 ## Optional phone/tablet cloud sync
 
 Account creation requires acknowledgement of the draft Terms of Use and Privacy Notice. Read them from Settings or [`privacy.html`](privacy.html); they remain available offline after the app shell has been cached. Implementation details and the remaining legal-review work are in [`PRIVACY-TERMS-DRAFT.md`](PRIVACY-TERMS-DRAFT.md).

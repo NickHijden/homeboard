@@ -28,3 +28,13 @@ The test is complete only when all items work on the target iPad and laptop. Nev
 7. Confirm the sensitive-information warning is visible next to task/event titles and day labels, and when editing a list item. It should not appear under the to-do or grocery quick-add inputs. On the iPad, confirm long event forms scroll so Save and Cancel remain reachable.
 
 The local browser suite in `tests/privacy-flow.browser.cjs` covers these UI paths with mocked cloud responses. It does not replace verifying metadata persistence in the separate Development project or testing the target iPad.
+
+## Household invitations
+
+1. In one private browser session, sign in as the owner of a synthetic Development household. Add a recognizable test planner item and create an invitation for a second test email.
+2. In a separate browser profile, create the second account through the normal staging signup form, confirm its email, then sign in. No project URL or key should be requested.
+3. Paste the invitation token and choose Join. Confirm the household name and shared test item appear. The owner should see the invitation marked accepted and the second account listed as a member.
+4. Make a test change as the member, sync, and confirm the owner sees it. Confirm both accounts can reload and reopen the household.
+5. Reusing the token should be rejected. A different signed-in email, an unconfirmed account, or an expired or revoked token must not gain access.
+
+If an older database returns `column reference "household_id" is ambiguous`, the operator repair is documented in `INVITATION-ACCEPTANCE-FIX.md`. Customers do not perform that setup. The real PostgreSQL regression suite runs with `node --test tests/invitation-acceptance.database.cjs` and requires Docker with an existing `postgres:16-alpine` image. Its Auth schema is synthetic; live signup and confirmation delivery still need the checks above.
