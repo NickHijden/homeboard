@@ -198,12 +198,6 @@ test('document links preserve signup state, and privacy remains readable on narr
 test('local planner editing remains available without an acknowledgement', async (t) => {
   const { page, requests } = await setup(t);
   await page.locator('#closeSettingsButton').click();
-  for (const input of ['todoInput', 'groceryInput']) {
-    const hint = await page.locator(`#${input}`).getAttribute('aria-describedby');
-    await page.locator(`#${hint}`).scrollIntoViewIfNeeded();
-    assert.equal(await page.locator(`#${hint}`).isVisible(), true);
-    assert.match(await page.locator(`#${hint}`).innerText(), /Do not enter payment-card details, passwords/);
-  }
   await page.locator('#todoInput').fill('Synthetic local task');
   await page.locator('#todoForm button').click();
   assert.match(await page.locator('#todoList').innerText(), /Synthetic local task/);

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20261008-02-staging" />
+    <link rel="stylesheet" href="styles.css?v=20261008-03-staging" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -18,7 +18,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261008-02-staging</p>
+            <p class="app-version">Version 20261008-03-staging</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -67,10 +67,9 @@
             </div>
             <form class="quick-add" id="todoForm">
               <label class="sr-only" for="todoInput">Add a to-do</label>
-              <input id="todoInput" type="text" placeholder="Add something small…" autocomplete="off" maxlength="120" aria-describedby="todoPrivacyHint" />
+              <input id="todoInput" type="text" placeholder="Add something small…" autocomplete="off" maxlength="120" />
               <button class="add-list-button" type="submit" aria-label="Add to-do">＋</button>
             </form>
-            <p class="entry-privacy-hint" id="todoPrivacyHint">Do not enter payment-card details, passwords, government identification numbers, medical records, or other highly sensitive information.</p>
             <div class="list-items" id="todoList"></div>
             <div class="list-card-footer">
               <button class="subtle-button" id="clearTodosButton" type="button">Clear completed</button>
@@ -87,10 +86,9 @@
             </div>
             <form class="quick-add" id="groceryForm">
               <label class="sr-only" for="groceryInput">Add groceries</label>
-              <input id="groceryInput" type="text" placeholder="Add groceries…" autocomplete="off" maxlength="120" aria-describedby="groceryPrivacyHint" />
+              <input id="groceryInput" type="text" placeholder="Add groceries…" autocomplete="off" maxlength="120" />
               <button class="add-list-button green-button" type="submit" aria-label="Add grocery">＋</button>
             </form>
-            <p class="entry-privacy-hint" id="groceryPrivacyHint">Do not enter payment-card details, passwords, government identification numbers, medical records, or other highly sensitive information.</p>
             <div class="list-items" id="groceryList"></div>
             <div class="list-card-footer">
               <button class="subtle-button" id="clearGroceriesButton" type="button">Clear completed</button>
@@ -402,7 +400,7 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261008-02-staging" defer></script>
-    <script src="app.js?v=20261008-02-staging" defer></script>
+    <script src="recurrence.js?v=20261008-03-staging" defer></script>
+    <script src="app.js?v=20261008-03-staging" defer></script>
   </body>
 </html>

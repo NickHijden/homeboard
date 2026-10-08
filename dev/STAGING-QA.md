@@ -25,6 +25,6 @@ The test is complete only when all items work on the target iPad and laptop. Nev
 4. Sign in to an existing synthetic account with the checkbox unchecked. Confirm ordinary sign-in still works. Sign out and confirm any new signup needs a fresh acknowledgement.
 5. Change the signup email and confirm the checkbox resets. With a failed signup request, confirm retry is available and no duplicate request can be sent while one is pending.
 6. After the updated service worker installs, go offline and open each document link from Settings. Confirm all three sections and their styling remain readable. Confirm local planner editing remains available.
-7. Confirm the sensitive-information warning is visible next to task/event titles, day labels, to-do and grocery inputs, and when editing a list item. On the iPad, confirm long event forms scroll so Save and Cancel remain reachable.
+7. Confirm the sensitive-information warning is visible next to task/event titles and day labels, and when editing a list item. It should not appear under the to-do or grocery quick-add inputs. On the iPad, confirm long event forms scroll so Save and Cancel remain reachable.
 
 The local browser suite in `tests/privacy-flow.browser.cjs` covers these UI paths with mocked cloud responses. It does not replace verifying metadata persistence in the separate Development project or testing the target iPad.

@@ -11,7 +11,7 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261008-02-staging';
+const APP_VERSION = '20261008-03-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
