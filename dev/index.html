@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20261008-03-staging" />
+    <link rel="stylesheet" href="styles.css?v=20261008-04-staging" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -18,7 +18,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261008-03-staging</p>
+            <p class="app-version">Version 20261008-04-staging</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -364,6 +364,18 @@
           <div class="platform-admin-list" id="platformAdminList"></div>
           <p class="sync-status" id="platformAdminStatus" aria-live="polite"></p>
         </section>
+        <section class="account-section" aria-labelledby="accountDataTitle">
+          <p class="eyebrow">Your account &amp; data</p>
+          <h3 id="accountDataTitle">Export or delete your account</h3>
+          <p class="settings-copy">Download your account details, policy acknowledgement, invitations, private planner and shared planners you can access. Shared planners may contain other members’ entries. Keep the downloaded file private.</p>
+          <label class="account-checkbox"><input id="includeDeviceData" type="checkbox" /> Include this device’s planner, including unsynced entries</label>
+          <p class="privacy-hint">The account export is for reviewing your data. Use Download backup above if you want a file you can restore.</p>
+          <div class="settings-actions">
+            <button class="secondary-button" id="exportAccountButton" type="button" disabled>Export my data</button>
+            <button class="danger-button" id="deleteAccountButton" type="button" disabled>Delete my account…</button>
+          </div>
+          <p class="sync-status" id="accountDataStatus" role="status">Sign in to export or delete your account.</p>
+        </section>
         <section class="privacy-section" aria-labelledby="privacySectionTitle">
           <p class="eyebrow">PRIVACY &amp; USE</p>
           <h3 id="privacySectionTitle">Keep household information safe</h3>
@@ -376,6 +388,31 @@
       </form>
     </dialog>
 
+    <dialog class="account-delete-dialog" id="deleteAccountDialog" aria-labelledby="deleteAccountTitle">
+      <form class="task-form" id="deleteAccountForm">
+        <div class="dialog-heading">
+          <div><p class="eyebrow">Permanent deletion</p><h2 id="deleteAccountTitle">Delete your account?</h2></div>
+          <button class="close-button" id="closeDeleteAccountButton" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="settings-copy" id="deleteAccountIdentity"></p>
+        <p class="settings-copy">This permanently removes your login, account details, private cloud planner and invitations involving your account. Households where you are the sole owner and member, and their planners, are also deleted.</p>
+        <ul class="account-household-preview" id="deleteAccountHouseholds"></ul>
+        <p class="settings-copy">Shared households you leave keep their planner entries, including entries you added. This device’s planner and saved login will be cleared. Downloaded files and copies on other devices are not erased; clear those separately. Provider backups and security logs follow the provider’s retention settings.</p>
+        <p class="settings-copy">Export any data you want to keep before continuing. Deletion cannot be undone.</p>
+        <div id="deleteAccountConfirmation" hidden>
+          <label class="field-label" for="deleteAccountPassword">Current password</label>
+          <input class="large-input" id="deleteAccountPassword" type="password" autocomplete="current-password" required />
+          <label class="field-label" for="deleteAccountPhrase">Type DELETE to confirm</label>
+          <input class="large-input" id="deleteAccountPhrase" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required pattern="DELETE" />
+        </div>
+        <p class="sync-status" id="deleteAccountStatus" role="status"></p>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="cancelDeleteAccountButton" type="button">Cancel</button>
+          <button class="danger-button" id="confirmDeleteAccountButton" type="submit" disabled>Permanently delete account</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog class="backup-dialog" id="backupDialog" aria-labelledby="backupTitle">
       <form class="task-form backup-form">
         <div class="dialog-heading">
@@ -385,7 +422,7 @@
           </div>
           <button class="close-button" id="closeBackupButton" type="button" aria-label="Close">×</button>
         </div>
-        <p class="settings-copy">This older iPad cannot download a <code>blob:</code> file directly. Tap <strong>Copy backup text</strong>, then paste it into a text file on your laptop and save it with a <code>.json</code> ending.</p>
+        <p class="settings-copy" id="backupInstructions">Tap Copy backup text, then paste it into a text file and save it with a .json ending.</p>
         <textarea class="backup-text" id="backupText" readonly aria-label="Homeboard backup JSON"></textarea>
         <p class="sync-status" id="backupStatus" aria-live="polite">The backup text is ready to copy.</p>
         <div class="dialog-actions">
@@ -400,7 +437,7 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261008-03-staging" defer></script>
-    <script src="app.js?v=20261008-03-staging" defer></script>
+    <script src="recurrence.js?v=20261008-04-staging" defer></script>
+    <script src="app.js?v=20261008-04-staging" defer></script>
   </body>
 </html>

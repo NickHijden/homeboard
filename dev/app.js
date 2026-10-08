@@ -10,8 +10,10 @@ const SYNC_CONFIG_KEY = `homeboard-sync-config-v1${STORAGE_NAMESPACE}`;
 const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
+const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
+let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261008-03-staging';
+const APP_VERSION = '20261008-04-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -77,7 +79,11 @@ const syncState = {
   busy: false,
   pending: false,
   authenticating: false,
+  generation: 0,
+  deleting: false,
 };
+let accountBusy = false;
+let deletionPreview = null;
 
 const householdState = {
   households: [],
@@ -225,6 +231,7 @@ recoverFromIndexedDB();
 initializeSync();
 
 function bindEvents() {
+  bindAccountDataEvents();
   if (!els.addEventButton || !els.eventDialog || !els.taskForm) return;
   els.addEventButton.addEventListener('click', () => openEventDialog());
   els.previousWeekButton.addEventListener('click', () => moveWeek(-1));
@@ -1675,7 +1682,11 @@ function showToast(message, actionLabel = '') {
 }
 
 function exportBackup() {
-  const backupText = JSON.stringify(state.data, null, 2);
+  downloadJson(state.data, 'backup');
+}
+
+function downloadJson(data, kind) {
+  const backupText = JSON.stringify(data, null, 2);
   // iOS 12 Safari can navigate to a blob URL but cannot reliably open the
   // resulting resource. Show a copyable fallback instead of leaving the user
   // on Safari's "WebKitBlobResource error" page.
@@ -1683,25 +1694,30 @@ function exportBackup() {
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const link = document.createElement('a');
   if (isIOS || !('download' in link)) {
-    openBackupFallback(backupText);
+    openBackupFallback(backupText, kind);
     return;
   }
   const blob = new Blob([backupText], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   link.href = url;
-  link.download = `homeboard-backup-${dateKey(new Date())}.json`;
+  link.download = `homeboard-${kind}-${dateKey(new Date())}.json`;
   link.click();
-  URL.revokeObjectURL(url);
-  showToast('Backup downloaded');
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast(kind === 'backup' ? 'Backup downloaded' : 'Account export downloaded');
 }
 
-function openBackupFallback(backupText) {
+function openBackupFallback(backupText, kind) {
   if (!els.backupDialog || !els.backupText) {
     showToast('This iPad cannot download backups directly. Use a laptop to download one.');
     return;
   }
   els.backupText.value = backupText;
-  if (els.backupStatus) els.backupStatus.textContent = 'The backup text is ready to copy.';
+  const label = kind === 'account-export' ? 'account export' : 'backup';
+  document.querySelector('#backupTitle').textContent = `Copy your ${label}`;
+  document.querySelector('#backupInstructions').textContent = `Copy this ${label} text, paste it into a text file and save it with a .json ending. Keep the file private.`;
+  els.copyBackupButton.textContent = `Copy ${label} text`;
+  els.backupText.setAttribute('aria-label', `Homeboard ${label} JSON`);
+  if (els.backupStatus) els.backupStatus.textContent = `The ${label} text is ready to copy.`;
   openDialog(els.backupDialog);
 }
 
@@ -1713,10 +1729,245 @@ function copyBackupText() {
   try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
   if (copied) {
     if (els.backupStatus) els.backupStatus.textContent = 'Copied. Paste it into a .json file on your laptop.';
-    showToast('Backup copied');
+    showToast('JSON copied');
   } else if (els.backupStatus) {
     els.backupStatus.textContent = 'Please press and hold the selected text, then choose Copy.';
   }
+}
+
+function accountElement(id) { return document.getElementById(id); }
+
+function bindAccountDataEvents() {
+  accountElement('exportAccountButton').addEventListener('click', exportAccountData);
+  accountElement('deleteAccountButton').addEventListener('click', reviewAccountDeletion);
+  accountElement('deleteAccountForm').addEventListener('submit', deleteAccount);
+  ['closeDeleteAccountButton', 'cancelDeleteAccountButton'].forEach((id) => {
+    accountElement(id).addEventListener('click', cancelAccountDeletion);
+  });
+  ['deleteAccountPassword', 'deleteAccountPhrase'].forEach((id) => {
+    accountElement(id).addEventListener('input', renderAccountControls);
+  });
+  accountElement('deleteAccountDialog').addEventListener('cancel', (event) => {
+    event.preventDefault();
+    cancelAccountDeletion();
+  });
+  window.addEventListener('storage', (event) => {
+    if (event.key === ACCOUNT_RESET_KEY && event.newValue !== storageGeneration) {
+      clearDeletedAccountFromDevice(false).then(() => {
+        accountElement('accountDataStatus').textContent = 'An account was deleted in another tab. This device’s saved login and planner have been cleared.';
+      });
+    }
+  });
+}
+
+function renderAccountControls() {
+  const signedIn = Boolean(syncState.session);
+  ['exportAccountButton', 'deleteAccountButton', 'includeDeviceData'].forEach((id) => {
+    accountElement(id).disabled = !signedIn || accountBusy || syncState.authenticating;
+  });
+  accountElement('confirmDeleteAccountButton').disabled = !signedIn || accountBusy || !deletionPreview
+    || accountElement('deleteAccountConfirmation').hidden
+    || accountElement('deleteAccountPhrase').value !== 'DELETE'
+    || !accountElement('deleteAccountPassword').value;
+  ['closeDeleteAccountButton', 'cancelDeleteAccountButton', 'deleteAccountPassword', 'deleteAccountPhrase'].forEach((id) => {
+    accountElement(id).disabled = syncState.deleting;
+  });
+}
+
+function accountErrorMessage(error) {
+  if (/function.*(not find|does not exist)|schema cache|404|Failed to fetch/i.test(error.message || '')) {
+    return 'This account service is unavailable. The Homeboard operator may need to finish setup. Your data has been kept.';
+  }
+  return error.message || 'The request failed. Your data has been kept.';
+}
+
+async function exportAccountData() {
+  if (accountBusy || !syncState.session) return;
+  accountBusy = true;
+  renderAccountControls();
+  const status = accountElement('accountDataStatus');
+  status.textContent = 'Preparing your account export…';
+  try {
+    const includeDevice = accountElement('includeDeviceData').checked;
+    const data = await householdRpc('export_my_account_data', {});
+    if (!data || data.format !== 'homeboard-account-export' || !data.account
+      || data.account.id !== syncState.session.user.id) throw new Error('The account export could not be verified. Please try again.');
+    if (includeDevice) data.device_planner = JSON.parse(JSON.stringify(state.data));
+    downloadJson(data, 'account-export');
+    status.textContent = 'Your account export is ready. Keep this file private. Use Download backup for a restorable planner copy.';
+  } catch (error) {
+    status.textContent = accountErrorMessage(error);
+  } finally {
+    accountBusy = false;
+    renderAccountControls();
+  }
+}
+
+async function reviewAccountDeletion() {
+  if (accountBusy || !syncState.session) return;
+  deletionPreview = null;
+  accountBusy = true;
+  accountElement('deleteAccountPassword').value = '';
+  accountElement('deleteAccountPhrase').value = '';
+  accountElement('deleteAccountConfirmation').hidden = true;
+  accountElement('deleteAccountHouseholds').textContent = '';
+  accountElement('deleteAccountIdentity').textContent = syncState.session.user.email || '';
+  const status = accountElement('deleteAccountStatus');
+  status.textContent = 'Checking your account and household ownership…';
+  openDialog(accountElement('deleteAccountDialog'));
+  renderAccountControls();
+  try {
+    const preview = await householdRpc('preview_my_account_deletion', {});
+    if (!accountElement('deleteAccountDialog').hasAttribute('open')) return;
+    if (!preview || !syncState.session || preview.account_id !== syncState.session.user.id
+      || !Array.isArray(preview.households) || typeof preview.platform_admin !== 'boolean') {
+      throw new Error('Your account could not be verified. Sign in again.');
+    }
+    const sharedOwner = preview.households.some((h) => h.role === 'owner' && h.other_members > 0);
+    preview.households.forEach((h) => {
+      const item = document.createElement('li');
+      item.textContent = `${h.name}: ${h.role === 'owner'
+        ? h.other_members > 0 ? 'transfer ownership first' : 'household and planner will be deleted'
+        : 'you will leave; the shared planner stays'}.`;
+      accountElement('deleteAccountHouseholds').appendChild(item);
+    });
+    status.textContent = preview.platform_admin
+      ? 'Another administrator must remove your platform administrator access before you can delete your account.'
+      : sharedOwner ? 'Transfer ownership in Household settings, then review deletion again.'
+        : 'Confirm your current password and type DELETE to continue.';
+    deletionPreview = preview;
+    accountElement('deleteAccountConfirmation').hidden = preview.platform_admin || sharedOwner;
+  } catch (error) {
+    status.textContent = accountErrorMessage(error);
+  } finally {
+    accountBusy = false;
+    renderAccountControls();
+  }
+}
+
+function cancelAccountDeletion() {
+  if (syncState.deleting) return;
+  deletionPreview = null;
+  accountElement('deleteAccountPassword').value = '';
+  accountElement('deleteAccountPhrase').value = '';
+  closeDialog(accountElement('deleteAccountDialog'));
+}
+
+async function deleteAccount(event) {
+  event.preventDefault();
+  if (accountBusy || !deletionPreview || accountElement('deleteAccountConfirmation').hidden
+    || accountElement('deleteAccountPhrase').value !== 'DELETE' || !accountElement('deleteAccountPassword').value) return;
+  accountBusy = true;
+  const status = accountElement('deleteAccountStatus');
+  status.textContent = 'Confirming your password and deleting your account…';
+  renderAccountControls();
+  try {
+    const session = await ensureSyncSession();
+    if (!session || session.user.id !== deletionPreview.account_id) throw new Error('Sign in again and review deletion.');
+    syncState.deleting = true;
+    syncState.generation += 1; // Discard all earlier cloud responses.
+    stopSyncPolling();
+    if (syncState.queueTimer) window.clearTimeout(syncState.queueTimer);
+    syncState.queueTimer = null;
+    syncState.pending = false;
+    renderAuthControls();
+    const body = { password: accountElement('deleteAccountPassword').value, confirmation: 'DELETE', preview: deletionPreview };
+    accountElement('deleteAccountPassword').value = '';
+    let result;
+    try {
+      result = await syncRequest('/functions/v1/delete-account', { method: 'POST', body }, session.access_token);
+    } catch (error) {
+      // A connection loss may follow a successful server deletion. Signing out
+      // prevents automatic uploads while the operator checks an unknown result.
+      if (!error.status || error.status >= 500) signOut();
+      throw error;
+    } finally { body.password = ''; }
+    if (!result || result.deleted !== true || result.account_id !== session.user.id) {
+      signOut();
+      throw new Error('The deletion result could not be verified. Your local data has been kept. Contact the Homeboard operator.');
+    }
+    const cleared = await clearDeletedAccountFromDevice(true);
+    closeDialog(accountElement('deleteAccountDialog'));
+    deletionPreview = null;
+    accountElement('accountDataStatus').textContent = cleared
+      ? 'Account deleted. Your login and planner on this device have been cleared.'
+      : 'Account deleted. Some browser storage could not be cleared. Clear this site’s browser data on this device.';
+    showToast('Account deleted');
+  } catch (error) {
+    status.textContent = `${accountErrorMessage(error)} Close this dialog and review deletion again${syncState.session ? '.' : ' after signing in.'}`;
+    deletionPreview = null;
+    accountElement('deleteAccountConfirmation').hidden = true;
+  } finally {
+    syncState.deleting = false;
+    accountBusy = false;
+    accountElement('deleteAccountPassword').value = '';
+    renderAuthControls();
+    if (syncState.session) startSyncPolling();
+  }
+}
+
+function readStorageGeneration() {
+  try { return localStorage.getItem(ACCOUNT_RESET_KEY) || ''; } catch (error) { return ''; }
+}
+
+function createEmptyPlanner() {
+  return { tasks: [], todos: [], groceries: [], completions: {}, anyDayCompletions: [], daySettings: {},
+    meta: { demo: false, footballScheduleVersion: FOOTBALL_SCHEDULE_VERSION, volunteeringStartFixVersion: '20260923-v2' } };
+}
+
+async function clearDeletedAccountFromDevice(broadcast) {
+  let cleared = true;
+  if (broadcast) {
+    try { localStorage.setItem(ACCOUNT_RESET_KEY, `${Date.now()}-${Math.random()}`); } catch (error) { cleared = false; }
+  }
+  storageGeneration = readStorageGeneration();
+  try { signOut(); } catch (error) { cleared = false; }
+  [SYNC_SESSION_KEY, SYNC_EMAIL_KEY, HOUSEHOLD_SELECTION_KEY, STORAGE_KEY, BACKUP_STORAGE_KEY].concat(LEGACY_STORAGE_KEYS).forEach((key) => {
+    try { localStorage.removeItem(key); } catch (error) { cleared = false; }
+  });
+  state.data = createEmptyPlanner();
+  loadedDataFromStorage = true;
+  state.lastUndo = null;
+  if (state.toastTimer) window.clearTimeout(state.toastTimer);
+  els.toast.classList.remove('visible');
+  els.syncEmail.value = '';
+  els.syncPassword.value = '';
+  els.backupText.value = '';
+  accountElement('deleteAccountPassword').value = '';
+  accountElement('deleteAccountPhrase').value = '';
+  // Clear any stale editor values and prevent an old form restoring entries.
+  document.querySelectorAll('dialog').forEach((dialog) => {
+    if (dialog !== els.settingsDialog) closeDialog(dialog);
+  });
+  els.taskForm.reset();
+  els.daySettingsForm.reset();
+  persist({ sync: false });
+  render();
+  if (window.indexedDB) {
+    cleared = (await new Promise((resolve) => {
+      let finished = false;
+      const finish = (ok) => { if (!finished) { finished = true; resolve(ok); } };
+      window.setTimeout(() => finish(false), 3000);
+      try {
+        const request = window.indexedDB.open(IDB_NAME, 1);
+        request.onupgradeneeded = () => {
+          if (!request.result.objectStoreNames.contains(IDB_STORE)) request.result.createObjectStore(IDB_STORE);
+        };
+        request.onerror = () => finish(false);
+        request.onsuccess = () => {
+          const database = request.result;
+          try {
+            const transaction = database.transaction([IDB_STORE], 'readwrite');
+            transaction.objectStore(IDB_STORE).clear();
+            transaction.objectStore(IDB_STORE).put({ data: createEmptyPlanner(), generation: storageGeneration }, 'current');
+            transaction.oncomplete = () => { database.close(); finish(true); };
+            transaction.onerror = transaction.onabort = () => { database.close(); finish(false); };
+          } catch (error) { database.close(); finish(false); }
+        };
+      } catch (error) { finish(false); }
+    })) && cleared;
+  }
+  return cleared;
 }
 
 function importBackup(event) {
@@ -1766,6 +2017,7 @@ function loadSyncConfig() {
 function loadSyncSession() {
   try {
     const stored = JSON.parse(localStorage.getItem(SYNC_SESSION_KEY));
+    if (storageGeneration && (!stored || stored.device_generation !== storageGeneration)) return null;
     if (stored && stored.access_token && stored.refresh_token && stored.user && stored.user.id) return stored;
   } catch (error) {
     // A broken session should never prevent the local planner from opening.
@@ -1834,6 +2086,7 @@ function saveSyncConfig() {
   const connectionChanged = syncState.config.url !== url || syncState.config.key !== key;
   syncState.config = { url, key };
   if (connectionChanged) {
+    syncState.generation += 1;
     resetSignupAcknowledgement();
     syncState.session = null;
     stopSyncPolling();
@@ -1862,7 +2115,7 @@ function saveSyncConfig() {
 }
 
 async function signIn(createAccount) {
-  if (syncState.authenticating) return;
+  if (syncState.authenticating || syncState.deleting) return;
   if (createAccount && (!els.signupAcknowledgement || !els.signupAcknowledgement.checked)) {
     setSyncStatus('Read and agree to the Terms of Use and acknowledge the Privacy Notice before creating an account.', 'error');
     if (els.signupAcknowledgement) {
@@ -1882,6 +2135,7 @@ async function signIn(createAccount) {
     return;
   }
   syncState.authenticating = true;
+  syncState.generation += 1;
   setSyncStatus(createAccount ? 'Creating account…' : 'Signing in…');
   try {
     localStorage.setItem(SYNC_EMAIL_KEY, email);
@@ -1908,7 +2162,7 @@ async function signIn(createAccount) {
     startSyncPolling();
     await loadHouseholds(true);
     await loadPlatformAdminUI(true);
-    await syncNow(true);
+    await syncNow(true, true);
   } catch (error) {
     setSyncStatus(error.message || 'Cloud sign-in failed.', 'error');
   } finally {
@@ -1929,11 +2183,16 @@ function renderAuthControls() {
   if (els.syncSignUpButton) els.syncSignUpButton.hidden = signedIn;
   [els.syncEmail, els.syncPassword, els.syncSignInButton, els.syncSignUpButton,
     els.syncSignOutButton, els.saveSyncConfigButton, els.signupAcknowledgement].forEach((control) => {
-    if (control) control.disabled = syncState.authenticating;
+    if (control) control.disabled = syncState.authenticating || syncState.deleting;
   });
+  renderAccountControls();
 }
 
 function signOut() {
+  syncState.generation += 1;
+  if (syncState.queueTimer) window.clearTimeout(syncState.queueTimer);
+  syncState.queueTimer = null;
+  syncState.pending = false;
   resetSignupAcknowledgement();
   stopSyncPolling();
   syncState.session = null;
@@ -1960,6 +2219,7 @@ function setSyncSession(response) {
     expires_in: response.expires_in,
     expires_at: Math.floor(Date.now() / 1000) + Number(response.expires_in || 3600),
     user: response.user,
+    device_generation: storageGeneration,
   };
   localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify(syncState.session));
 }
@@ -2477,7 +2737,9 @@ async function householdRpc(functionName, body) {
   return syncRequest(`/rest/v1/rpc/${functionName}`, { method: 'POST', body }, session.access_token);
 }
 
-async function syncNow(manual) {
+async function syncNow(manual, authenticatedNow) {
+  if (syncState.deleting || (syncState.authenticating && !authenticatedNow) || storageGeneration !== readStorageGeneration()) return;
+  const generation = syncState.generation;
   if (!syncState.config.url || !syncState.config.key) {
     if (manual) setSyncStatus('Save the Supabase connection first.', 'error');
     return;
@@ -2497,6 +2759,7 @@ async function syncNow(manual) {
     if (!session) throw new Error('Your session expired. Please sign in again.');
     const household = await ensureSelectedHouseholdForSync();
     const remote = await fetchRemoteData(session, household);
+    if (generation !== syncState.generation || syncState.deleting) return;
     const localBefore = JSON.stringify(state.data);
     const merged = remote ? mergePlannerData(state.data, remote) : state.data;
     const mergedSignature = JSON.stringify(merged);
@@ -2508,6 +2771,7 @@ async function syncNow(manual) {
     if (!remote || JSON.stringify(remote) !== mergedSignature) await pushRemoteData(session, merged, household);
     renderSyncStatus(household ? 'Connected. Shared household synced just now.' : 'Connected. Synced just now.', 'connected');
   } catch (error) {
+    if (generation !== syncState.generation || syncState.deleting) return;
     if (/401|403|expired|invalid/i.test(error.message || '')) {
       syncState.session = null;
       localStorage.removeItem(SYNC_SESSION_KEY);
@@ -2516,7 +2780,7 @@ async function syncNow(manual) {
     setSyncStatus(error.message || 'Sync failed; local saving is still active.', 'error');
   } finally {
     syncState.busy = false;
-    if (syncState.pending) {
+    if (syncState.pending && !syncState.deleting && generation === syncState.generation) {
       syncState.pending = false;
       window.setTimeout(() => syncNow(false), 250);
     }
@@ -2578,6 +2842,9 @@ async function pushRemoteData(session, data, household) {
 }
 
 async function syncRequest(path, options, accessToken) {
+  const generation = syncState.generation;
+  if (accessToken && (!syncState.session || accessToken !== syncState.session.access_token)) throw new Error('This account session has changed.');
+  if (syncState.deleting && path !== '/functions/v1/delete-account') throw new Error('Account deletion is in progress.');
   const headers = {
     apikey: syncState.config.key,
     'Content-Type': 'application/json',
@@ -2588,11 +2855,14 @@ async function syncRequest(path, options, accessToken) {
   if (options && options.body !== undefined) request.body = JSON.stringify(options.body);
   const response = await fetch(syncState.config.url + path, request);
   const text = await response.text();
+  if (generation !== syncState.generation || storageGeneration !== readStorageGeneration()) throw new Error('This account session has changed.');
   let result = null;
   try { result = text ? JSON.parse(text) : null; } catch (error) { result = null; }
   if (!response.ok) {
     const message = result && (result.msg || result.message || result.error_description || result.error) || `Cloud request failed (${response.status})`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
   return result;
 }
@@ -2658,7 +2928,7 @@ function loadData() {
   } catch (error) {
     console.warn('Homeboard data could not be loaded', error);
   }
-  return createStarterData();
+  return storageGeneration ? createEmptyPlanner() : createStarterData();
 }
 
 function readStoredData(key) {
@@ -2892,6 +3162,7 @@ function createStarterData() {
 }
 
 function persist(options) {
+  if (storageGeneration !== readStorageGeneration()) { clearDeletedAccountFromDevice(false); return; }
   try {
     state.data.meta = Object.assign({}, state.data.meta || {}, { demo: false });
     const serialized = JSON.stringify(state.data);
@@ -2923,6 +3194,7 @@ function clearDeletedMark(listName, itemId) {
 }
 
 function queueCloudSync() {
+  if (syncState.deleting) return;
   if (!syncState || !syncState.session || !syncState.config.url || !syncState.config.key) return;
   if (syncState.queueTimer) return;
   syncState.queueTimer = window.setTimeout(() => {
@@ -2946,10 +3218,13 @@ function openPlannerDatabase(callback) {
 }
 
 function mirrorDataToIndexedDB(data) {
+  const generation = storageGeneration;
+  const snapshot = JSON.parse(JSON.stringify(data));
   openPlannerDatabase((database) => {
+    if (generation !== storageGeneration || generation !== readStorageGeneration()) { database.close(); return; }
     try {
       const transaction = database.transaction([IDB_STORE], 'readwrite');
-      transaction.objectStore(IDB_STORE).put(JSON.parse(JSON.stringify(data)), 'current');
+      transaction.objectStore(IDB_STORE).put({ data: snapshot, generation }, 'current');
       transaction.oncomplete = () => database.close();
       transaction.onerror = () => database.close();
     } catch (error) {
@@ -2959,15 +3234,18 @@ function mirrorDataToIndexedDB(data) {
 }
 
 function recoverFromIndexedDB() {
+  const generation = storageGeneration;
   if (loadedDataFromStorage || !window.indexedDB) return;
   openPlannerDatabase((database) => {
     try {
       const transaction = database.transaction([IDB_STORE], 'readonly');
       const request = transaction.objectStore(IDB_STORE).get('current');
       request.onsuccess = () => {
-        const recovered = normalizePlannerData(request.result);
+        const stored = request.result;
+        const recovered = stored && (stored.generation || '') === generation
+          ? normalizePlannerData(stored.data || stored) : null;
         database.close();
-        if (!recovered) return;
+        if (!recovered || generation !== storageGeneration || generation !== readStorageGeneration()) return;
         state.data = recovered;
         loadedDataFromStorage = true;
         persist();

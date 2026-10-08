@@ -1,0 +1,7 @@
+[functions.send-reminders]
+verify_jwt = false
+
+[functions.delete-account]
+# The handler explicitly verifies the bearer through Auth /user and requires
+# fresh password authentication. Supports projects with newer JWT signing keys.
+verify_jwt = false

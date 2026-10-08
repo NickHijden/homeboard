@@ -1,4 +1,4 @@
-const APP_VERSION = '20261008-03-staging';
+const APP_VERSION = '20261008-04-staging';
 const STAGING_PATH_PREFIX = '/homeboard/dev/';
 const IS_STAGING = self.location.pathname === '/homeboard/dev' || self.location.pathname.startsWith(STAGING_PATH_PREFIX);
 const CACHE_NAME = `${IS_STAGING ? 'homeboard-staging-shell' : 'homeboard-shell'}-${APP_VERSION}`;
@@ -30,6 +30,8 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  // Never cache authenticated cloud responses or return app HTML for API errors.
+  if (new URL(event.request.url).origin !== self.location.origin) return;
   // The production worker has the broader /homeboard/ scope. Leave staging
   // requests to the staging worker so the two environments remain separate.
   const requestPath = new URL(event.request.url).pathname;

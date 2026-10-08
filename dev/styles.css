@@ -247,6 +247,13 @@ dialog::backdrop { background: rgba(38, 42, 64, .35); backdrop-filter: blur(3px)
 body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 900; background: rgba(38, 42, 64, .35); }
 .task-dialog { width: 490px; max-height: calc(100vh - 28px); overflow-y: auto; }
 .settings-dialog { width: 430px; max-height: calc(100vh - 28px); overflow-y: auto; }
+.account-delete-dialog { width: 510px; max-height: calc(100vh - 28px); overflow-y: auto; }
+.account-section { border-top: 1px solid var(--line, #e6e8ed); margin-top: 24px; padding-top: 24px; }
+.account-checkbox { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.5; margin: 14px 0; }
+.account-checkbox input { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 2px; }
+.account-household-preview { font-size: 13px; line-height: 1.6; padding-left: 20px; }
+.account-delete-dialog .danger-button, .account-section .danger-button { min-height: 44px; font-size: 13px; }
+.account-delete-dialog .dialog-actions { flex-wrap: wrap; }
 .task-form { padding: 28px; }
 .dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 25px; }
 .dialog-heading h2 { font-size: 24px; }
