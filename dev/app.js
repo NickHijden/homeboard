@@ -13,13 +13,19 @@ const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMES
 const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261008-05-staging';
+const APP_VERSION = '20261008-06-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
 const CENTRAL_PRODUCTION_CONFIG = { url: PRODUCTION_SUPABASE_URL, key: PRODUCTION_SUPABASE_PUBLISHABLE_KEY };
+// The public test site follows the customer flow, with its own fixed backend.
+const CENTRAL_STAGING_CONFIG = {
+  url: 'https://axfxuqihsscjekicbgkk.supabase.co',
+  key: 'sb_publishable_AJsvciGTAoJU62s-KPhUjQ_-sN4b7vB',
+};
+const MANUAL_SYNC_CONFIG_ALLOWED = IS_DEVELOPMENT_HOST && !IS_STAGING_HOST;
 const HOUSEHOLD_UI_ENABLED = IS_DEVELOPMENT_HOST || Boolean(CENTRAL_PRODUCTION_CONFIG.url && CENTRAL_PRODUCTION_CONFIG.key);
 const LEGACY_STORAGE_KEYS = IS_STAGING_HOST ? [
   'homeboard-household-planner-v2-staging',
@@ -389,8 +395,8 @@ function initializeEnvironment() {
       ? 'This public staging site is isolated from the production Supabase project.'
       : 'This preview is isolated from the production Supabase project.';
   }
-  if (els.syncConfigFields) els.syncConfigFields.hidden = !IS_DEVELOPMENT_HOST;
-  if (els.syncCopy && IS_DEVELOPMENT_HOST) els.syncCopy.textContent = 'Use the Homeboard Development project and your test account here. Customers never need to enter a project URL or API key.';
+  if (els.syncConfigFields) els.syncConfigFields.hidden = !MANUAL_SYNC_CONFIG_ALLOWED;
+  if (els.syncCopy && MANUAL_SYNC_CONFIG_ALLOWED) els.syncCopy.textContent = 'Use the Homeboard Development project and your test account here. Customers never need to enter a project URL or API key.';
   if (els.householdButton) els.householdButton.hidden = !HOUSEHOLD_UI_ENABLED;
   if (els.householdSection) els.householdSection.hidden = !HOUSEHOLD_UI_ENABLED;
 }
@@ -2000,6 +2006,9 @@ function importBackup(event) {
 }
 
 function loadSyncConfig() {
+  // Ignore saved manual overrides on the public staging site, including any
+  // stale production connection. Local developer previews remain configurable.
+  if (IS_STAGING_HOST) return { url: CENTRAL_STAGING_CONFIG.url, key: CENTRAL_STAGING_CONFIG.key };
   if (!IS_DEVELOPMENT_HOST) return { url: CENTRAL_PRODUCTION_CONFIG.url, key: CENTRAL_PRODUCTION_CONFIG.key };
   try {
     const stored = JSON.parse(localStorage.getItem(SYNC_CONFIG_KEY));
@@ -2018,11 +2027,21 @@ function loadSyncSession() {
   try {
     const stored = JSON.parse(localStorage.getItem(SYNC_SESSION_KEY));
     if (storageGeneration && (!stored || stored.device_generation !== storageGeneration)) return null;
+    if (IS_STAGING_HOST && !sessionBelongsToProject(stored, CENTRAL_STAGING_CONFIG.url)) return null;
     if (stored && stored.access_token && stored.refresh_token && stored.user && stored.user.id) return stored;
   } catch (error) {
     // A broken session should never prevent the local planner from opening.
   }
   return null;
+}
+
+function sessionBelongsToProject(session, projectUrl) {
+  // This is a routing safeguard for saved sessions, not JWT authentication.
+  // Supabase still validates the token on every authenticated request.
+  try {
+    const payload = String(session.access_token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(window.atob(payload)).iss === `${projectUrl}/auth/v1`;
+  } catch (error) { return false; }
 }
 
 function loadSyncEmail() {
@@ -2052,8 +2071,8 @@ function saveHouseholdSelection() {
 
 function initializeSync() {
   resetSignupAcknowledgement();
-  if (IS_DEVELOPMENT_HOST && els.syncProjectUrl) els.syncProjectUrl.value = syncState.config.url;
-  if (IS_DEVELOPMENT_HOST && els.syncPublishableKey) els.syncPublishableKey.value = syncState.config.key;
+  if (MANUAL_SYNC_CONFIG_ALLOWED && els.syncProjectUrl) els.syncProjectUrl.value = syncState.config.url;
+  if (MANUAL_SYNC_CONFIG_ALLOWED && els.syncPublishableKey) els.syncPublishableKey.value = syncState.config.key;
   if (els.syncEmail) els.syncEmail.value = loadSyncEmail() || (syncState.session && syncState.session.user && syncState.session.user.email) || '';
   if (els.inviteTokenInput) {
     try { els.inviteTokenInput.value = new URL(window.location.href).searchParams.get('invite') || ''; } catch (error) { /* Older Safari can ignore a malformed URL. */ }
@@ -2069,7 +2088,7 @@ function initializeSync() {
 }
 
 function saveSyncConfig() {
-  if (!IS_DEVELOPMENT_HOST) {
+  if (!MANUAL_SYNC_CONFIG_ALLOWED) {
     setSyncStatus('This Homeboard build is centrally configured.', 'connected');
     return;
   }
@@ -2240,7 +2259,7 @@ function renderSyncStatus(message, type) {
   if (message) els.syncStatus.textContent = message;
   else if (!syncState.config.url || !syncState.config.key) els.syncStatus.textContent = 'Cloud sync is not connected.';
   else if (syncState.session) els.syncStatus.textContent = 'Connected. Syncing automatically.';
-  else if (!IS_DEVELOPMENT_HOST) els.syncStatus.textContent = 'Sign in to your Homeboard account.';
+  else if (!MANUAL_SYNC_CONFIG_ALLOWED) els.syncStatus.textContent = 'Sign in to your Homeboard account.';
   else els.syncStatus.textContent = 'Connection saved. Sign in below.';
   els.syncStatus.className = `sync-status${type ? ` ${type}` : syncState.session ? ' connected' : ''}`;
 }
@@ -2332,7 +2351,7 @@ async function loadHouseholds(force = false) {
       householdState.members = [];
       householdState.membersHouseholdId = '';
       householdState.loaded = true;
-      setHouseholdStatus(IS_DEVELOPMENT_HOST
+      setHouseholdStatus(MANUAL_SYNC_CONFIG_ALLOWED
         ? 'Run household-invitations-setup.sql in Homeboard Development, then refresh this screen.'
         : 'The household service is not enabled yet. Please try again later.', 'error');
       return [];
@@ -2963,8 +2982,9 @@ function normalizeTask(task) {
     normalized.recurrenceStartWeek = normalized.recurrenceStartWeek
       || (normalized.recurrenceStartDate ? dateKey(startOfWeek(parseDate(normalized.recurrenceStartDate))) : '')
       || (normalized.date ? dateKey(startOfWeek(parseDate(normalized.date))) : '');
+    const anchorDate = getRecurringAnchorDate(normalized);
     normalized.recurrenceStartDate = normalized.recurrenceStartDate
-      || getRecurringAnchorDate(normalized)
+      || (anchorDate ? dateKey(anchorDate) : '')
       || normalized.nextAnyDayDate
       || normalized.anyDayDate
       || '';

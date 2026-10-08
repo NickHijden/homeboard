@@ -4,9 +4,9 @@ Use this checklist on the public staging site before any production release:
 
 `https://nickhijden.github.io/homeboard/dev/`
 
-Configure only the **Homeboard Development** Supabase URL and publishable key. Use synthetic names and data.
+Staging connects to **Homeboard Development** automatically. Test the customer flow with email, password and the signup acknowledgement; no project URL or key is required. Use synthetic names and data.
 
-1. Confirm the page shows `DEVELOPMENT · STAGING`.
+1. Confirm the page shows `DEVELOPMENT · STAGING` and Settings has no project URL, API key or Save connection fields.
 2. Add a to-do item and a grocery item; reload and confirm both remain.
 3. Add a one-time calendar event with a start and end time.
 4. Add a fixed-day task and an any-day weekly task.

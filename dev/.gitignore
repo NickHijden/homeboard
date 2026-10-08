@@ -1,0 +1,9 @@
+.publish/
+.deploy/
+.supabase/
+.env
+.env.*
+homeboard-backup-*.json
+homeboard-account-export-*.json
+*.backup.json
+tmp/
