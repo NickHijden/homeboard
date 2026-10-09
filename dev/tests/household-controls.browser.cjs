@@ -56,6 +56,11 @@ async function setup(t, options = {}) {
     localStorage.setItem('homeboard-sync-session-v1', JSON.stringify({ user, access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', expires_at: Math.floor(Date.now() / 1000) + 3600 }));
     localStorage.setItem('homeboard-household-selection-v1', 'one');
   }, { origin, project, user });
+  if (options.olderSafari) await context.addInitScript(() => {
+    Object.defineProperty(window, 'AbortController', { configurable: true, value: undefined });
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: undefined });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value: undefined });
+  });
   const page = await context.newPage(); page.setDefaultTimeout(10000);
   await page.goto(origin); await page.waitForFunction(() => householdState.loaded && !syncState.busy);
   await page.locator('#settingsButton').click();
@@ -95,6 +100,34 @@ test('offline logout still removes the login and cannot be undone by a reload', 
   await page.locator('#syncSignOutButton').click();
   await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('server could not be reached'));
   await page.reload(); assert.equal(await page.evaluate(() => syncState.session), null);
+});
+
+test('calendar and main controls work with older Safari dialog and logout fallbacks', async t => {
+  const { page, cloud } = await setup(t, { olderSafari: true, viewport: { width: 1024, height: 768 } });
+  assert.equal(await page.locator('#weekGrid .day-name').count(), 7);
+  assert.equal(await page.locator('#syncSignOutButton').isVisible(), true);
+  await page.locator('#closeSettingsButton').click();
+  await page.locator('#taskOverviewButton').click();
+  assert.equal(await page.locator('#taskOverviewDialog').isVisible(), true);
+  await page.locator('#closeTaskOverviewButton').click();
+  await page.locator('#addTaskButton').click();
+  assert.equal(await page.locator('#taskDialog').isVisible(), true);
+  await page.locator('#closeDialogButton').click();
+  await page.locator('#settingsButton').click();
+  assert.equal(await page.locator('#settingsDialog').isVisible(), true);
+  await review(page);
+  assert.equal(await page.locator('#deleteHouseholdDialog').isVisible(), true);
+  await confirm(page);
+  await page.waitForFunction(() => document.querySelector('#householdStatus').textContent.startsWith('Household deleted.'));
+  assert.deepEqual(await titles(page), ['Second task']);
+  await page.locator('#syncSignOutButton').click();
+  assert.equal(await page.locator('#syncSignInButton').isVisible(), true);
+  await page.waitForTimeout(100);
+  assert.equal(cloud.requests.filter(r => r.path === '/auth/v1/logout').length, 1);
+  await page.reload();
+  assert.equal(await page.locator('#weekGrid .day-name').count(), 7);
+  await page.locator('#settingsButton').click();
+  assert.equal(await page.locator('#syncSignInButton').isVisible(), true);
 });
 
 test('members have no delete button and cannot open owner deletion through the UI handler', async t => {

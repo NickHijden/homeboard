@@ -14,7 +14,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261009-03-staging';
+const APP_VERSION = '20261009-04-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -2349,18 +2349,18 @@ async function logoutFromUI() {
   const generation = syncState.generation;
   // Clear this browser immediately, including its other tabs, even offline.
   // Revocation is limited to this session so other devices keep their login.
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  const controller = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+  const timeout = controller ? window.setTimeout(() => controller.abort(), 8000) : null;
   try {
-    const response = await fetch(`${config.url}/auth/v1/logout?scope=local`, {
-      method: 'POST', headers: { apikey: config.key, Authorization: `Bearer ${token}` }, signal: controller.signal,
-    });
+    const request = { method: 'POST', headers: { apikey: config.key, Authorization: `Bearer ${token}` } };
+    if (controller) request.signal = controller.signal;
+    const response = await fetch(`${config.url}/auth/v1/logout?scope=local`, request);
     if (!response.ok && response.status !== 401 && response.status !== 403) throw new Error('Logout unavailable');
   } catch (error) {
     if (generation === syncState.generation && !syncState.session) {
       renderSyncStatus('Logged out of this browser. The server could not be reached to end the session.', 'error');
     }
-  } finally { window.clearTimeout(timeout); }
+  } finally { if (timeout !== null) window.clearTimeout(timeout); }
 }
 
 function signOut(options) {
@@ -2588,7 +2588,7 @@ async function applyHouseholdDeletion(householdId, broadcast = false) {
   const generation = syncState.generation;
   householdState.households = householdState.households.filter(home => home.household_id !== householdId);
   if (householdState.selectedHouseholdId === householdId) {
-    householdState.selectedHouseholdId = householdState.households[0]?.household_id || '';
+    householdState.selectedHouseholdId = householdState.households.length ? householdState.households[0].household_id : '';
     householdState.members = [];
     householdState.membersHouseholdId = '';
     householdState.invitations = [];

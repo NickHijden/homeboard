@@ -29,6 +29,16 @@ For customer-flow or iPad testing, use the public staging path. Its Development 
 
 ## Pre-release checks
 
+### Older iPad compatibility
+
+Browser scripts are served directly without transpilation. Keep their syntax within the ES2018 baseline and feature-detect optional browser APIs. Run `node --test tests/browser-syntax.test.cjs` with the bundled Node runtime before publishing; it uses Node's bundled Acorn parser in a child process. It must reject newer syntax such as optional chaining (`?.`), even when that code is only inside an unused function.
+
+Changing a Playwright user agent to iPad or reducing the viewport does not emulate an older Safari JavaScript engine. The household-controls browser suite separately exercises calendar rendering, Settings, Task overview, Add event, household deletion and logout without native dialog methods or AbortController. A physical iPad check is still required.
+
+The `20261009-03-staging` regression introduced optional chaining and stopped older iPads from parsing the entire app, leaving the calendar blank and buttons inactive. The compatibility correction removes that expression and makes logout tolerate an unavailable AbortController. See [WebKit's JavaScript feature notes](https://webkit.org/blog/11340/new-webkit-features-in-safari-14/) for the newer syntax introduction.
+
+### Release checklist
+
 Before a production release:
 
 1. Download fresh backups from active household devices.
