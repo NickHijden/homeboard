@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20261009-02-staging" />
+    <link rel="stylesheet" href="styles.css?v=20261009-03-staging" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -18,7 +18,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261009-02-staging</p>
+            <p class="app-version">Version 20261009-03-staging</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -278,6 +278,7 @@
             <button class="secondary-button sync-wide-button" id="saveSyncConfigButton" type="button">Save connection</button>
             <div class="sync-divider"></div>
           </div>
+          <div id="signedOutAccountPanel">
           <label class="field-label" for="syncEmail">Homeboard email</label>
           <input class="large-input" id="syncEmail" type="email" placeholder="you@example.com" autocomplete="username" />
           <label class="field-label" for="syncPassword">Password</label>
@@ -296,8 +297,15 @@
           <div class="settings-actions">
             <button class="primary-button" id="syncSignInButton" type="button">Sign in</button>
             <button class="secondary-button" id="syncSignUpButton" type="button">Create account</button>
-            <button class="secondary-button" id="syncNowButton" type="button">Sync now</button>
-            <button class="subtle-button" id="syncSignOutButton" type="button">Sign out</button>
+          </div>
+          </div>
+          <div id="signedInAccountPanel" hidden>
+            <p class="field-label">Signed in as</p>
+            <p class="signed-in-email" id="signedInEmail"></p>
+            <div class="settings-actions">
+              <button class="secondary-button" id="syncNowButton" type="button">Sync now</button>
+              <button class="primary-button" id="syncSignOutButton" type="button">Log out</button>
+            </div>
           </div>
           <p class="sync-status" id="syncStatus" aria-live="polite">Cloud sync is not connected.</p>
         </div>
@@ -354,6 +362,13 @@
               </div>
               <p class="field-hint">You must be signed in with the verified email address that received the invitation.</p>
             </div>
+            <details class="account-section" id="householdOptions" hidden>
+              <summary>Household options</summary>
+              <div class="account-options-content">
+                <p class="settings-copy">Only the owner can delete this household. Its shared planner will be removed for everyone.</p>
+                <button class="danger-button" id="deleteHouseholdButton" type="button">Delete household…</button>
+              </div>
+            </details>
           </div>
           <p class="sync-status" id="householdStatus" aria-live="polite"></p>
         </section>
@@ -386,6 +401,25 @@
           </div>
         </details>
         <div class="settings-note"><span aria-hidden="true">✦</span> Local saving stays active even when the internet is unavailable.</div>
+      </form>
+    </dialog>
+
+    <dialog class="account-delete-dialog" id="deleteHouseholdDialog" aria-labelledby="deleteHouseholdTitle" aria-describedby="deleteHouseholdExplanation">
+      <form class="task-form" id="deleteHouseholdForm">
+        <div class="dialog-heading">
+          <div><p class="eyebrow">Permanent deletion</p><h2 id="deleteHouseholdTitle">Delete household?</h2></div>
+          <button class="close-button" id="closeDeleteHouseholdButton" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="household-delete-name" id="deleteHouseholdName"></p>
+        <p class="settings-copy" id="deleteHouseholdExplanation">This permanently deletes this household and its shared tasks, events, groceries and invitations for all members. Everyone keeps their account and any other households.</p>
+        <p class="settings-copy">Download a backup first if you want to keep this planner. Deletion cannot be undone. Previously downloaded files and copies on other devices are not erased.</p>
+        <label class="field-label" for="deleteHouseholdPhrase">Type the household name exactly to confirm</label>
+        <input class="large-input" id="deleteHouseholdPhrase" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" required />
+        <p class="sync-status" id="deleteHouseholdStatus" role="status"></p>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="cancelDeleteHouseholdButton" type="button">Cancel</button>
+          <button class="danger-button" id="confirmDeleteHouseholdButton" type="submit" disabled>Permanently delete household</button>
+        </div>
       </form>
     </dialog>
 
@@ -438,7 +472,7 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261009-02-staging" defer></script>
-    <script src="app.js?v=20261009-02-staging" defer></script>
+    <script src="recurrence.js?v=20261009-03-staging" defer></script>
+    <script src="app.js?v=20261009-03-staging" defer></script>
   </body>
 </html>

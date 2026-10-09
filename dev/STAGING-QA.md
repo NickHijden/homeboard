@@ -48,3 +48,7 @@ If an older database returns `column reference "household_id" is ambiguous`, the
 5. Joining an invitation must display the invited planner without copying the previous local/private/household board into it.
 
 See `HOUSEHOLD-ISOLATION-FIX.md` for the legacy-cache preservation behavior and browser regressions. Entries copied into cloud storage by an older build are not automatically removed; use a new test household to verify an empty start.
+
+## Household deletion and logout
+
+Install the owner-only database operation and follow the disposable-household checks in `HOUSEHOLD-CONTROLS-SETUP.md`. Verify cancellation, exact household-name confirmation, member restrictions, preservation of another household and all user accounts, logout across tabs and persistence after reload. Never delete an original household for this test.

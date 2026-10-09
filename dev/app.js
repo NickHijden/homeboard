@@ -11,9 +11,10 @@ const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
 const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
+const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261009-02-staging';
+const APP_VERSION = '20261009-03-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -83,6 +84,8 @@ const syncState = {
 };
 let accountBusy = false;
 let deletionPreview = null;
+let householdDeletion = null;
+let householdDeleteBusy = false;
 
 const householdState = {
   households: [],
@@ -335,7 +338,17 @@ function bindEvents() {
     els.signupAcknowledgement.removeAttribute('aria-invalid');
   });
   if (els.syncNowButton) els.syncNowButton.addEventListener('click', () => syncNow(true));
-  if (els.syncSignOutButton) els.syncSignOutButton.addEventListener('click', signOut);
+  if (els.syncSignOutButton) els.syncSignOutButton.addEventListener('click', logoutFromUI);
+  accountElement('deleteHouseholdButton').addEventListener('click', reviewHouseholdDeletion);
+  accountElement('deleteHouseholdForm').addEventListener('submit', deleteHouseholdFromUI);
+  accountElement('deleteHouseholdPhrase').addEventListener('input', renderHouseholdDeletionControls);
+  ['closeDeleteHouseholdButton', 'cancelDeleteHouseholdButton'].forEach(id => {
+    accountElement(id).addEventListener('click', cancelHouseholdDeletion);
+  });
+  accountElement('deleteHouseholdDialog').addEventListener('cancel', event => {
+    event.preventDefault();
+    cancelHouseholdDeletion();
+  });
   if (els.householdButton) els.householdButton.addEventListener('click', () => {
     openDialog(els.settingsDialog);
     renderHouseholdUI();
@@ -1817,6 +1830,17 @@ function bindAccountDataEvents() {
     cancelAccountDeletion();
   });
   window.addEventListener('storage', (event) => {
+    if (event.key === SYNC_SESSION_KEY && !event.newValue && !localStorage.getItem(SYNC_SESSION_KEY) && syncState.session) {
+      signOut();
+    }
+    if (event.key && event.key.startsWith(HOUSEHOLD_DELETED_KEY) && event.newValue) {
+      try {
+        const deleted = JSON.parse(event.newValue);
+        if (deleted.project === syncState.config.url && deleted.householdId) {
+          applyHouseholdDeletion(deleted.householdId);
+        }
+      } catch (error) { /* Ignore invalid events from browser storage. */ }
+    }
     if (event.key === ACCOUNT_RESET_KEY && event.newValue !== storageGeneration) {
       clearDeletedAccountFromDevice(false).then(() => {
         accountElement('accountDataStatus').textContent = 'An account was deleted in another tab. This device’s saved login and planner have been cleared.';
@@ -1828,7 +1852,7 @@ function bindAccountDataEvents() {
 function renderAccountControls() {
   const signedIn = Boolean(syncState.session);
   ['exportAccountButton', 'deleteAccountButton', 'includeDeviceData'].forEach((id) => {
-    accountElement(id).disabled = !signedIn || accountBusy || syncState.authenticating;
+    accountElement(id).disabled = !signedIn || accountBusy || syncState.authenticating || householdDeleteBusy;
   });
   accountElement('confirmDeleteAccountButton').disabled = !signedIn || accountBusy || !deletionPreview
     || accountElement('deleteAccountConfirmation').hidden
@@ -2305,13 +2329,38 @@ function resetSignupAcknowledgement() {
 
 function renderAuthControls() {
   const signedIn = Boolean(syncState.session);
+  accountElement('signedOutAccountPanel').hidden = signedIn;
+  accountElement('signedInAccountPanel').hidden = !signedIn;
+  accountElement('signedInEmail').textContent = signedIn && syncState.session.user ? syncState.session.user.email || 'Homeboard account' : '';
   if (els.signupAcknowledgementPanel) els.signupAcknowledgementPanel.hidden = signedIn;
   if (els.syncSignUpButton) els.syncSignUpButton.hidden = signedIn;
   [els.syncEmail, els.syncPassword, els.syncSignInButton, els.syncSignUpButton,
     els.syncSignOutButton, els.saveSyncConfigButton, els.signupAcknowledgement].forEach((control) => {
-    if (control) control.disabled = syncState.authenticating || syncState.deleting;
+    if (control) control.disabled = syncState.authenticating || syncState.deleting || householdDeleteBusy;
   });
   renderAccountControls();
+}
+
+async function logoutFromUI() {
+  if (!syncState.session || syncState.deleting || householdDeleteBusy) return;
+  const token = syncState.session.access_token;
+  const config = { ...syncState.config };
+  signOut();
+  const generation = syncState.generation;
+  // Clear this browser immediately, including its other tabs, even offline.
+  // Revocation is limited to this session so other devices keep their login.
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(`${config.url}/auth/v1/logout?scope=local`, {
+      method: 'POST', headers: { apikey: config.key, Authorization: `Bearer ${token}` }, signal: controller.signal,
+    });
+    if (!response.ok && response.status !== 401 && response.status !== 403) throw new Error('Logout unavailable');
+  } catch (error) {
+    if (generation === syncState.generation && !syncState.session) {
+      renderSyncStatus('Logged out of this browser. The server could not be reached to end the session.', 'error');
+    }
+  } finally { window.clearTimeout(timeout); }
 }
 
 function signOut(options) {
@@ -2322,6 +2371,10 @@ function signOut(options) {
   resetSignupAcknowledgement();
   stopSyncPolling();
   syncState.session = null;
+  if (els.syncPassword) els.syncPassword.value = '';
+  householdDeletion = null;
+  closeDialog(accountElement('deleteHouseholdDialog'));
+  accountElement('deleteHouseholdPhrase').value = '';
   localStorage.removeItem(SYNC_SESSION_KEY);
   householdState.households = [];
   householdState.invitations = [];
@@ -2336,7 +2389,7 @@ function signOut(options) {
   activatePlannerScope('', Boolean(options && options.discardPlanner));
   renderPlatformAdminUI();
   renderHouseholdUI();
-  renderSyncStatus('Signed out. Local planner data is still available.');
+  renderSyncStatus('Logged out. Sign in to open your household planner.');
 }
 
 function setSyncSession(response) {
@@ -2408,6 +2461,8 @@ function renderHouseholdUI() {
 
   const households = householdState.households || [];
   const selected = getSelectedHousehold();
+  accountElement('householdOptions').hidden = !selected || selected.role !== 'owner';
+  accountElement('deleteHouseholdButton').disabled = householdState.loading || householdDeleteBusy || accountBusy;
   if (els.householdSelect) {
     els.householdSelect.hidden = !households.length;
     els.householdSelect.innerHTML = households.map((household) => `
@@ -2435,6 +2490,146 @@ function getSelectedHousehold() {
   return (householdState.households || []).find((household) => household.household_id === householdState.selectedHouseholdId) || null;
 }
 
+function reviewHouseholdDeletion() {
+  const selected = getSelectedHousehold();
+  if (!selected || selected.role !== 'owner' || !syncState.session || householdDeleteBusy || accountBusy) return;
+  householdDeletion = { id: selected.household_id, name: selected.household_name, generation: syncState.generation };
+  accountElement('deleteHouseholdName').textContent = selected.household_name;
+  accountElement('deleteHouseholdPhrase').value = '';
+  accountElement('deleteHouseholdStatus').textContent = 'Your account and other households will stay available.';
+  renderHouseholdDeletionControls();
+  openDialog(accountElement('deleteHouseholdDialog'));
+  accountElement('cancelDeleteHouseholdButton').focus();
+}
+
+function renderHouseholdDeletionControls() {
+  const selected = getSelectedHousehold();
+  accountElement('confirmDeleteHouseholdButton').disabled = householdDeleteBusy || !householdDeletion
+    || !syncState.session || householdDeletion.generation !== syncState.generation
+    || !selected || selected.household_id !== householdDeletion.id || selected.role !== 'owner'
+    || accountElement('deleteHouseholdPhrase').value !== householdDeletion.name;
+  ['deleteHouseholdPhrase', 'closeDeleteHouseholdButton', 'cancelDeleteHouseholdButton'].forEach(id => {
+    accountElement(id).disabled = householdDeleteBusy;
+  });
+}
+
+function cancelHouseholdDeletion() {
+  if (householdDeleteBusy) return;
+  householdDeletion = null;
+  accountElement('deleteHouseholdPhrase').value = '';
+  closeDialog(accountElement('deleteHouseholdDialog'));
+}
+
+async function deleteHouseholdFromUI(event) {
+  event.preventDefault();
+  renderHouseholdDeletionControls();
+  if (accountElement('confirmDeleteHouseholdButton').disabled) return;
+  const review = { ...householdDeletion };
+  householdDeleteBusy = true;
+  plannerGeneration += 1; // Ignore cloud reads begun before confirmation.
+  renderHouseholdDeletionControls();
+  renderAuthControls();
+  accountElement('deleteHouseholdStatus').textContent = 'Deleting household…';
+  try {
+    const deleted = await householdRpc('delete_my_household', {
+      target_household_id: review.id, confirmed_household_name: accountElement('deleteHouseholdPhrase').value,
+    });
+    if (review.generation !== syncState.generation) return;
+    if (deleted !== true) throw new Error('Deletion could not be confirmed. Refresh Household settings before trying again.');
+    householdDeleteBusy = false;
+    await applyHouseholdDeletion(review.id, true);
+  } catch (error) {
+    if (review.generation !== syncState.generation) return;
+    accountElement('deleteHouseholdStatus').textContent = /schema cache|does not exist|404/i.test(error.message || '')
+      ? 'Household deletion is not available yet. Please try again later.'
+      : /Failed to fetch|NetworkError/i.test(error.message || '')
+        ? 'The connection was interrupted. Refresh Household settings to check whether deletion completed before trying again.'
+        : error.message || 'Deletion could not be confirmed. Refresh Household settings before trying again.';
+  } finally {
+    householdDeleteBusy = false;
+    renderHouseholdDeletionControls();
+    renderAuthControls();
+    renderHouseholdUI();
+  }
+}
+
+function deletedHouseholdKey(project, householdId) {
+  return HOUSEHOLD_DELETED_KEY + encodeURIComponent(JSON.stringify([project, householdId]));
+}
+
+function scopeMatchesHousehold(scope, project, householdId) {
+  try {
+    const parts = JSON.parse(decodeURIComponent(scope));
+    return parts[0] === project && parts[2] === householdId;
+  } catch (error) { return false; }
+}
+
+function isDeletedPlannerScope(scope) {
+  if (!scope) return false;
+  try {
+    const parts = JSON.parse(decodeURIComponent(scope));
+    return Boolean(parts[2] && localStorage.getItem(deletedHouseholdKey(parts[0], parts[2])));
+  } catch (error) { return false; }
+}
+
+async function applyHouseholdDeletion(householdId, broadcast = false) {
+  const project = syncState.config.url;
+  let cacheCleared = true;
+  try {
+    if (broadcast) localStorage.setItem(deletedHouseholdKey(project, householdId), JSON.stringify({ project, householdId, at: Date.now() }));
+    // Remove only this household's copies, including caches from another
+    // account on the same browser. The marker prevents delayed recovery/writes.
+    Object.keys(localStorage).forEach(key => {
+      const prefix = [STORAGE_KEY, BACKUP_STORAGE_KEY].map(base => `${base}:scope:`).find(base => key.startsWith(base));
+      if (prefix && scopeMatchesHousehold(key.slice(prefix.length), project, householdId)) localStorage.removeItem(key);
+    });
+  } catch (error) { cacheCleared = false; }
+  syncState.generation += 1;
+  const generation = syncState.generation;
+  householdState.households = householdState.households.filter(home => home.household_id !== householdId);
+  if (householdState.selectedHouseholdId === householdId) {
+    householdState.selectedHouseholdId = householdState.households[0]?.household_id || '';
+    householdState.members = [];
+    householdState.membersHouseholdId = '';
+    householdState.invitations = [];
+    if (els.invitationLinkInput) els.invitationLinkInput.value = '';
+    saveHouseholdSelection();
+    activatePlannerScope(plannerScopeFor(syncState.session, householdState.selectedHouseholdId), true);
+  }
+  householdState.loaded = false;
+  householdDeletion = null;
+  accountElement('deleteHouseholdPhrase').value = '';
+  closeDialog(accountElement('deleteHouseholdDialog'));
+  renderHouseholdUI();
+  await new Promise(resolve => {
+    const timeout = window.setTimeout(() => { cacheCleared = false; resolve(); }, 3000);
+    const finish = () => { window.clearTimeout(timeout); resolve(); };
+    openPlannerDatabase(database => {
+      try {
+        const tx = database.transaction([IDB_STORE], 'readwrite');
+        const request = tx.objectStore(IDB_STORE).openCursor();
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          const key = String(cursor.key);
+          if (key.startsWith('scope:') && scopeMatchesHousehold(key.slice(6), project, householdId)) cursor.delete();
+          cursor.continue();
+        };
+        tx.oncomplete = () => { database.close(); finish(); };
+        tx.onabort = tx.onerror = () => { cacheCleared = false; database.close(); finish(); };
+      } catch (error) { cacheCleared = false; database.close(); finish(); }
+    }, () => { cacheCleared = false; finish(); });
+  });
+  if (generation !== syncState.generation) return;
+  await loadHouseholds(true);
+  if (generation !== syncState.generation) return;
+  await syncNow(false);
+  if (generation !== syncState.generation) return;
+  setHouseholdStatus(cacheCleared
+    ? 'Household deleted. Your account and other households have been kept.'
+    : 'Household deleted. Some saved browser copies could not be cleared. Clear this site’s browser data on this device.', cacheCleared ? 'connected' : 'error');
+}
+
 function setHouseholdStatus(message, type) {
   if (!els.householdStatus) return;
   els.householdStatus.textContent = message || '';
@@ -2442,6 +2637,7 @@ function setHouseholdStatus(message, type) {
 }
 
 async function loadHouseholds(force = false, preferredHouseholdId = '') {
+  if (householdDeleteBusy) return householdState.households;
   if (!HOUSEHOLD_UI_ENABLED || !syncState.session || !syncState.config.url || !syncState.config.key) {
     renderHouseholdUI();
     return;
@@ -2455,7 +2651,7 @@ async function loadHouseholds(force = false, preferredHouseholdId = '') {
   const request = (async () => {
     try {
       const rows = await householdRpc('list_my_households', {});
-      if (generation !== syncState.generation || !syncState.session) return [];
+      if (generation !== syncState.generation || !syncState.session || householdDeleteBusy) return [];
       if (!Array.isArray(rows)) throw new Error('The household list is unavailable.');
       householdState.households = Array.isArray(rows) ? rows : [];
       if (preferredHouseholdId) {
@@ -2894,7 +3090,7 @@ async function householdRpc(functionName, body) {
 }
 
 async function syncNow(manual, authenticatedNow) {
-  if (syncState.deleting || (syncState.authenticating && !authenticatedNow) || storageGeneration !== readStorageGeneration()) return;
+  if (syncState.deleting || householdDeleteBusy || (syncState.authenticating && !authenticatedNow) || storageGeneration !== readStorageGeneration()) return;
   const generation = syncState.generation;
   if (!syncState.config.url || !syncState.config.key) {
     if (manual) setSyncStatus('Save the Supabase connection first.', 'error');
@@ -3085,6 +3281,7 @@ function mergeItems(localItems, remoteItems, deleted) {
 }
 
 function loadData() {
+  if (isDeletedPlannerScope(activePlannerScope)) return createEmptyPlanner();
   try {
     const keysToTry = [scopedStorageKey(STORAGE_KEY, activePlannerScope), scopedStorageKey(BACKUP_STORAGE_KEY, activePlannerScope)]
       .concat(activePlannerScope ? [] : LEGACY_STORAGE_KEYS);
@@ -3336,6 +3533,7 @@ function createStarterData() {
 }
 
 function persist(options) {
+  if (isDeletedPlannerScope(activePlannerScope)) return;
   if (storageGeneration !== readStorageGeneration()) { clearDeletedAccountFromDevice(false); return; }
   plannerRevision += 1;
   try {
@@ -3400,7 +3598,7 @@ function mirrorDataToIndexedDB(data) {
   const scope = activePlannerScope;
   const snapshot = JSON.parse(JSON.stringify(data));
   openPlannerDatabase((database) => {
-    if (generation !== storageGeneration || generation !== readStorageGeneration()) { database.close(); return; }
+    if (generation !== storageGeneration || generation !== readStorageGeneration() || isDeletedPlannerScope(scope)) { database.close(); return; }
     try {
       const transaction = database.transaction([IDB_STORE], 'readwrite');
       transaction.objectStore(IDB_STORE).put({ data: snapshot, generation }, plannerDatabaseKey(scope));
@@ -3416,7 +3614,7 @@ function recoverFromIndexedDB() {
   const generation = storageGeneration;
   const scope = activePlannerScope;
   const revision = plannerRevision;
-  if (loadedDataFromStorage || !window.indexedDB) {
+  if (loadedDataFromStorage || !window.indexedDB || isDeletedPlannerScope(scope)) {
     plannerRecoveryPromise = Promise.resolve();
     return plannerRecoveryPromise;
   }
@@ -3435,7 +3633,7 @@ function recoverFromIndexedDB() {
             ? normalizePlannerData(stored.data || stored) : null;
           database.close();
           if (!finished && recovered && generation === storageGeneration && generation === readStorageGeneration()
-            && scope === activePlannerScope && revision === plannerRevision) {
+            && scope === activePlannerScope && revision === plannerRevision && !isDeletedPlannerScope(scope)) {
             state.data = recovered;
             loadedDataFromStorage = true;
             persist();
