@@ -29,6 +29,18 @@ The recurrence rollover rules have regression tests for weekly, biweekly, monthl
 node --test tests/recurrence.test.cjs
 ```
 
+Completion regressions also exercise the real app in a browser, including stale
+sync responses, task edits, Undo, backup restore, reopening, and week rollover:
+
+```text
+node --test tests/recurring-completions.browser.cjs
+```
+
+The browser suite requires Playwright (locally installed or available through
+`NODE_PATH`) and uses installed Edge on Windows. It intercepts every request and
+uses synthetic planner data only. See [`RECURRING-COMPLETION-FIX.md`](RECURRING-COMPLETION-FIX.md)
+for the completion fix and release status.
+
 ## Development and production separation
 
 See [`DEVELOPMENT.md`](DEVELOPMENT.md) for the environment rules and release checklist. Local previews show a `DEVELOPMENT · LOCAL ONLY` badge, while the public staging path shows `DEVELOPMENT · STAGING`; both refuse the known production Supabase URL. Use synthetic data and the separate Homeboard Development project when testing. The staging acceptance steps are in [`STAGING-QA.md`](STAGING-QA.md).

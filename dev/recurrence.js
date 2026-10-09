@@ -73,6 +73,65 @@
     return dateKey(occurrence) === dateKey(day);
   }
 
+  function parseCompletionDate(value) {
+    const parsed = parseDate(value);
+    return parsed && dateKey(parsed) === value ? parsed : null;
+  }
+
+  // Old history records contain only the day the user checked the task off.
+  // Recover the scheduled occurrence in that week where possible. If there is
+  // no occurrence in that week, an overdue task was carried to its Monday.
+  function legacyAnyDayOccurrence(task, completedDate) {
+    const weekStart = startOfWeek(completedDate);
+    const weekEnd = addDays(weekStart, 6);
+    let occurrence = getRecurringAnchorDate(task) || parseDate(task.anyDayDate) || weekStart;
+    let guard = 0;
+    while (dateKey(occurrence) < dateKey(weekStart) && guard < 2400) {
+      occurrence = addRecurringDate(occurrence, task.recurrence);
+      guard += 1;
+    }
+    return occurrence >= weekStart && occurrence <= weekEnd ? occurrence : weekStart;
+  }
+
+  // Completion history survives merging independently of a task's mutable
+  // next date. Rebuild the lower bound from that history so a stale task edit
+  // cannot reopen a completed occurrence. Never move a future cursor backward.
+  function reconcileAnyDayTask(task, history) {
+    if (!task || !task.anyDay) return false;
+    const scheduleUpdatedAt = Date.parse(task.anyDayScheduleUpdatedAt || '') || 0;
+    const entries = (Array.isArray(history) ? history : []).filter((entry) => {
+      if (!entry || entry.taskId !== task.id) return false;
+      const completedAt = Date.parse(entry.completedAt || entry.updatedAt || '') || 0;
+      if (scheduleUpdatedAt && completedAt <= scheduleUpdatedAt) return false;
+      return !entry.recurrence || entry.recurrence === task.recurrence;
+    });
+    if (!entries.length) return false;
+    if (!isRecurringTask(task)) {
+      if (task.anyDayCompleted) return false;
+      task.anyDayCompleted = true;
+      return true;
+    }
+
+    const previousDate = parseCompletionDate(task.nextAnyDayDate) || parseCompletionDate(task.anyDayDate);
+    let nextDate = previousDate;
+    entries.forEach((entry) => {
+      const explicitOccurrence = parseCompletionDate(entry.occurrenceDate);
+      const completedDate = parseCompletionDate(entry.completedDate);
+      const occurrence = explicitOccurrence || (completedDate && legacyAnyDayOccurrence(task, completedDate));
+      if (!occurrence) return;
+      const recordedNext = parseCompletionDate(entry.nextAnyDayDate);
+      const candidate = recordedNext && recordedNext > occurrence
+        ? recordedNext
+        : addRecurringDate(occurrence, task.recurrence);
+      if (!nextDate || candidate > nextDate) nextDate = candidate;
+    });
+    if (!nextDate || (previousDate && nextDate <= previousDate)) return false;
+    task.nextAnyDayDate = dateKey(nextDate);
+    delete task.anyDayCompleted;
+    delete task.lastMissedAnyDayDate;
+    return true;
+  }
+
   // Move an unfinished old occurrence into the current week, then move the
   // recurrence anchor with it. This keeps the interval intact instead of
   // skipping a missed task to its next original calendar occurrence.
@@ -139,6 +198,7 @@
     getRecurringAnchorDate,
     isRecurringTask,
     matchesRecurringDate,
+    reconcileAnyDayTask,
     rollOverdueTask,
   };
 }));

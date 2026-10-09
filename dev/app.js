@@ -13,7 +13,7 @@ const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMES
 const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261008-06-staging';
+const APP_VERSION = '20261009-01-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -403,7 +403,7 @@ function initializeEnvironment() {
 
 function render() {
   rollOverdueRecurringTasks();
-renderWeekHeader();
+  renderWeekHeader();
   renderAnyDayBoard();
   renderWeek();
   renderCompletedAnyDayBoard();
@@ -485,6 +485,20 @@ function isAnyDayTaskOpen(task) {
 
   const anchor = parseDate(task.nextAnyDayDate) || parseDate(task.anyDayDate) || viewingWeek;
   return Array.from({ length: 7 }, (_, index) => matchesRecurringDate(anchor, addDays(viewingWeek, index), task.recurrence)).some(Boolean);
+}
+
+function reconcileAnyDayCompletions(data) {
+  const deleted = data.meta && data.meta.deleted && data.meta.deleted.anyDayCompletions;
+  const history = mergeItems(data.anyDayCompletions || [], [], deleted);
+  let changed = history.length !== (data.anyDayCompletions || []).length;
+  data.anyDayCompletions = history;
+  const recurrence = window.HomeboardRecurrence;
+  if (recurrence && typeof recurrence.reconcileAnyDayTask === 'function') {
+    data.tasks.forEach((task) => {
+      if (recurrence.reconcileAnyDayTask(task, history)) changed = true;
+    });
+  }
+  return changed;
 }
 
 function renderWeekHeader() {
@@ -1180,7 +1194,9 @@ function getRecurringAnchorDate(task) {
 
 function rollOverdueRecurringTasks() {
   const currentWeekStart = startOfWeek(new Date());
-  let changed = false;
+  // Completion history survives stale task edits and is authoritative before
+  // rollover decides whether an old occurrence is still unfinished.
+  let changed = reconcileAnyDayCompletions(state.data);
 
   if (typeof window !== 'undefined' && window.HomeboardRecurrence && typeof window.HomeboardRecurrence.rollOverdueTask === 'function') {
     state.data.tasks.forEach((task) => {
@@ -1297,33 +1313,39 @@ function completeTask(taskId, occurrenceDate, title) {
 }
 
 function completeAnyDayTask(taskId, title) {
+  reconcileAnyDayCompletions(state.data);
   const task = state.data.tasks.find((entry) => entry.id === taskId);
-  if (!task) return;
-  const completion = recordAnyDayCompletion(task, dateKey(new Date()));
+  if (!task || !task.anyDay || !isAnyDayTaskOpen(task)) return;
   const previous = {
     anyDayCompleted: task.anyDayCompleted,
     nextAnyDayDate: task.nextAnyDayDate,
     lastMissedAnyDayDate: task.lastMissedAnyDayDate,
-    updatedAt: task.updatedAt,
+    scheduleUpdatedAt: task.anyDayScheduleUpdatedAt,
   };
+  const completion = recordAnyDayCompletion(task, dateKey(new Date()));
   if (isRecurringTask(task)) {
-    const completedDate = parseDate(task.nextAnyDayDate) || parseDate(task.anyDayDate) || new Date();
-    task.nextAnyDayDate = dateKey(addRecurringDate(completedDate, task.recurrence));
+    task.nextAnyDayDate = completion.nextAnyDayDate;
     delete task.anyDayCompleted;
     delete task.lastMissedAnyDayDate;
   } else {
     task.anyDayCompleted = true;
   }
-  task.updatedAt = nowIso();
+  task.updatedAt = completion.updatedAt;
   state.lastUndo = () => {
-    if (previous.anyDayCompleted === undefined) delete task.anyDayCompleted;
-    else task.anyDayCompleted = previous.anyDayCompleted;
-    if (previous.nextAnyDayDate === undefined) delete task.nextAnyDayDate;
-    else task.nextAnyDayDate = previous.nextAnyDayDate;
-    if (previous.lastMissedAnyDayDate === undefined) delete task.lastMissedAnyDayDate;
-    else task.lastMissedAnyDayDate = previous.lastMissedAnyDayDate;
-    task.updatedAt = previous.updatedAt;
+    // Sync can replace task objects while the Undo toast is visible.
+    const currentTask = state.data.tasks.find((entry) => entry.id === taskId);
+    const undoneAt = Math.max(Date.now(), Date.parse(completion.updatedAt) || 0,
+      Date.parse(currentTask && currentTask.updatedAt || '') || 0) + 1;
+    if (currentTask && currentTask.anyDayScheduleUpdatedAt === previous.scheduleUpdatedAt
+      && (!isRecurringTask(currentTask) || currentTask.nextAnyDayDate === completion.nextAnyDayDate)) {
+      ['anyDayCompleted', 'nextAnyDayDate', 'lastMissedAnyDayDate'].forEach((key) => {
+        if (previous[key] === undefined) delete currentTask[key];
+        else currentTask[key] = previous[key];
+      });
+      currentTask.updatedAt = new Date(undoneAt).toISOString();
+    }
     state.data.anyDayCompletions = (state.data.anyDayCompletions || []).filter((entry) => entry.id !== completion.id);
+    markDeleted('anyDayCompletions', completion.id, undoneAt);
     persist();
     render();
   };
@@ -1333,14 +1355,25 @@ function completeAnyDayTask(taskId, title) {
 }
 
 function recordAnyDayCompletion(task, completedDate) {
+  const occurrenceDate = task.nextAnyDayDate || task.anyDayDate || completedDate;
+  // The same occurrence completed on two devices is one completion. A later
+  // re-completion after Undo must be newer than its deletion marker.
+  const id = `any-day:${task.id}:${occurrenceDate}:${task.anyDayScheduleUpdatedAt || 'original'}`;
+  const deleted = state.data.meta && state.data.meta.deleted && state.data.meta.deleted.anyDayCompletions;
+  const completedAt = new Date(Math.max(Date.now(), (Number(deleted && deleted[id]) || 0) + 1,
+    (Date.parse(task.anyDayScheduleUpdatedAt || '') || 0) + 1,
+    (Date.parse(task.updatedAt || '') || 0) + 1)).toISOString();
   const entry = {
-    id: createId(),
+    id,
     taskId: task.id,
     title: task.title,
     assignee: task.assignee || 'both',
     completedDate,
-    completedAt: nowIso(),
-    updatedAt: nowIso(),
+    occurrenceDate,
+    recurrence: task.recurrence || 'none',
+    nextAnyDayDate: isRecurringTask(task) ? dateKey(addRecurringDate(parseDate(occurrenceDate), task.recurrence)) : '',
+    completedAt,
+    updatedAt: completedAt,
   };
   state.data.anyDayCompletions = state.data.anyDayCompletions || [];
   state.data.anyDayCompletions.push(entry);
@@ -1381,6 +1414,15 @@ function handleTaskSubmit(event) {
     }
   }
   const effectiveDate = recurrence !== 'none' && !anyDay ? firstRecurrenceDate : date;
+  const previousStart = editingTask && (editingTask.recurrenceStartWeek || editingTask.recurrenceStartDate
+    || editingTask.anyDayDate || editingTask.nextAnyDayDate);
+  const sameAnyDaySchedule = Boolean(editingTask && editingTask.anyDay && anyDay
+    && editingTask.recurrence === recurrence
+    && (recurrence === 'none' || (previousStart && dateKey(startOfWeek(parseDate(previousStart))) === firstRecurrenceDate)));
+  const previousChangeTime = editingTask ? (state.data.anyDayCompletions || []).reduce((latest, entry) => {
+    return entry.taskId === editingTask.id
+      ? Math.max(latest, Date.parse(entry.completedAt || entry.updatedAt || '') || 0) : latest;
+  }, Math.max(Date.parse(editingTask.updatedAt || '') || 0, Date.parse(editingTask.anyDayScheduleUpdatedAt || '') || 0)) : 0;
   const updatedTask = {
     title,
     date: effectiveDate,
@@ -1391,24 +1433,35 @@ function handleTaskSubmit(event) {
     kind: String(els.taskType.value || 'task'),
     recurrence,
     reminder: String(els.taskReminder && els.taskReminder.value || 'day-before'),
-    updatedAt: nowIso(),
+    updatedAt: new Date(Math.max(Date.now(), previousChangeTime + 1)).toISOString(),
   };
   if (recurrence !== 'none') {
     updatedTask.recurrenceStartWeek = dateKey(startOfWeek(startWeekDate));
-    updatedTask.recurrenceStartDate = firstRecurrenceDate;
+    updatedTask.recurrenceStartDate = sameAnyDaySchedule
+      ? (editingTask.recurrenceStartDate || firstRecurrenceDate) : firstRecurrenceDate;
   }
   if (anyDay && recurrence !== 'none') {
-    updatedTask.nextAnyDayDate = firstRecurrenceDate || dateKey(startOfWeek(state.weekStart));
+    // Editing a title, assignee or reminder must not reset completed work.
+    updatedTask.nextAnyDayDate = sameAnyDaySchedule
+      ? (editingTask.nextAnyDayDate || editingTask.anyDayDate || firstRecurrenceDate)
+      : (firstRecurrenceDate || dateKey(startOfWeek(state.weekStart)));
   }
   if (anyDay) {
-    updatedTask.anyDayDate = recurrence !== 'none'
+    updatedTask.anyDayDate = sameAnyDaySchedule ? editingTask.anyDayDate : recurrence !== 'none'
       ? (firstRecurrenceDate || dateKey(startOfWeek(state.weekStart)))
       : (editingTask && editingTask.anyDayDate) || (editingTask && editingTask.nextAnyDayDate) || dateKey(state.weekStart);
+    if (editingTask && !sameAnyDaySchedule) {
+      updatedTask.anyDayScheduleUpdatedAt = updatedTask.updatedAt;
+      delete editingTask.anyDayCompleted;
+    }
   }
   if (editingTask) {
     Object.assign(editingTask, updatedTask);
     if (!anyDay || recurrence === 'none') delete editingTask.nextAnyDayDate;
-    if (!anyDay) delete editingTask.anyDayDate;
+    if (!anyDay) {
+      delete editingTask.anyDayDate;
+      delete editingTask.anyDayScheduleUpdatedAt;
+    }
     if (recurrence === 'none') {
       delete editingTask.recurrenceStartWeek;
       delete editingTask.recurrenceStartDate;
@@ -2893,20 +2946,22 @@ function mergePlannerData(local, remote) {
   if (localIsDemo && !remoteIsDemo) return remote;
   if (remoteIsDemo && !localIsDemo) return local;
   const deleted = mergeDeletedMaps(local.meta && local.meta.deleted, remote.meta && remote.meta.deleted);
-  return {
-    tasks: mergeItems(local.tasks, remote.tasks, deleted.tasks),
+  const merged = {
+    tasks: mergeItems(local.tasks, remote.tasks, deleted.tasks).map((task) => Object.assign({}, task)),
     todos: mergeItems(local.todos, remote.todos, deleted.todos),
     groceries: mergeItems(local.groceries, remote.groceries, deleted.groceries),
     completions: Object.assign({}, remote.completions || {}, local.completions || {}),
-    anyDayCompletions: mergeItems(local.anyDayCompletions || [], remote.anyDayCompletions || [], {}),
+    anyDayCompletions: mergeItems(local.anyDayCompletions || [], remote.anyDayCompletions || [], deleted.anyDayCompletions),
     daySettings: mergeDaySettings(local.daySettings, remote.daySettings),
     meta: { demo: false, deleted },
   };
+  reconcileAnyDayCompletions(merged);
+  return merged;
 }
 
 function mergeDeletedMaps(localDeleted, remoteDeleted) {
-  const result = { tasks: {}, todos: {}, groceries: {} };
-  ['tasks', 'todos', 'groceries'].forEach((listName) => {
+  const result = { tasks: {}, todos: {}, groceries: {}, anyDayCompletions: {} };
+  ['tasks', 'todos', 'groceries', 'anyDayCompletions'].forEach((listName) => {
     Object.assign(result[listName], (remoteDeleted && remoteDeleted[listName]) || {}, (localDeleted && localDeleted[listName]) || {});
     Object.keys((remoteDeleted && remoteDeleted[listName]) || {}).forEach((id) => {
       result[listName][id] = Math.max(Number((remoteDeleted[listName] || {})[id]) || 0, Number((localDeleted && localDeleted[listName] || {})[id]) || 0);
@@ -3011,7 +3066,7 @@ function normalizeListItem(item) {
 
 function normalizePlannerData(stored) {
   if (!stored || !Array.isArray(stored.tasks) || !Array.isArray(stored.todos) || !Array.isArray(stored.groceries)) return null;
-  return {
+  const normalized = {
     tasks: stored.tasks.map(normalizeTask),
     todos: stored.todos.map(normalizeListItem),
     groceries: stored.groceries.map(normalizeListItem),
@@ -3020,6 +3075,8 @@ function normalizePlannerData(stored) {
     daySettings: normalizeDaySettings(stored.daySettings),
     meta: stored.meta && typeof stored.meta === 'object' ? stored.meta : {},
   };
+  reconcileAnyDayCompletions(normalized);
+  return normalized;
 }
 
 function normalizeAnyDayCompletion(entry) {
@@ -3184,6 +3241,7 @@ function createStarterData() {
 function persist(options) {
   if (storageGeneration !== readStorageGeneration()) { clearDeletedAccountFromDevice(false); return; }
   try {
+    reconcileAnyDayCompletions(state.data);
     state.data.meta = Object.assign({}, state.data.meta || {}, { demo: false });
     const serialized = JSON.stringify(state.data);
     // The stable primary key preserves the data across app versions. The
@@ -3200,11 +3258,11 @@ function persist(options) {
   }
 }
 
-function markDeleted(listName, itemId) {
+function markDeleted(listName, itemId, deletedAt) {
   state.data.meta = state.data.meta || {};
   state.data.meta.deleted = state.data.meta.deleted || { tasks: {}, todos: {}, groceries: {} };
   state.data.meta.deleted[listName] = state.data.meta.deleted[listName] || {};
-  state.data.meta.deleted[listName][itemId] = Date.now();
+  state.data.meta.deleted[listName][itemId] = deletedAt || Date.now();
 }
 
 function clearDeletedMark(listName, itemId) {
