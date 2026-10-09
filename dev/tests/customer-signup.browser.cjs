@@ -59,6 +59,7 @@ async function open(t, options = {}) {
 
 test('a fresh staging customer signs up with only email, password and acknowledgement', async t => {
   const { page, requests } = await open(t);
+  assert.deepEqual(await page.evaluate(() => [state.data.tasks, state.data.todos, state.data.groceries]), [[], [], []], 'A fresh Development board must not import the pilot household or example tasks');
   assert.equal(await page.locator('#syncConfigFields').isVisible(), false);
   assert.equal(await page.locator('#saveSyncConfigButton').isVisible(), false);
   assert.doesNotMatch(await page.locator('#settingsDialog').innerText(), /Supabase|publishable key|project URL|Save connection/);
@@ -74,9 +75,26 @@ test('a fresh staging customer signs up with only email, password and acknowledg
   assert.equal(requests[0].key, developmentKey);
   assert.equal(requests[0].body.email, 'synthetic-customer@example.com');
   assert.ok(requests[0].body.data.homeboard_acknowledgement.terms_version);
-  // Fresh starter data must remain renderable after IndexedDB recovery/reload.
+  // Reload and recovery must not introduce any starter tasks or schedules.
   await page.reload();
+  assert.deepEqual(await page.evaluate(() => [state.data.tasks, state.data.todos, state.data.groceries]), [[], [], []]);
   await page.locator('#nextWeekButton').click();
+});
+
+test('valid production planner data is never loaded by a signed-out Development board', async t => {
+  const production = JSON.stringify({ tasks: [{ id: 'production-task', title: 'Production-only synthetic chore', kind: 'task',
+    assignee: 'both', anyDay: true, anyDayDate: '2026-10-05', recurrence: 'weekly' }], todos: [], groceries: [], meta: { demo: false } });
+  const { page, requests } = await open(t, { storage: {
+    'homeboard-household-planner-v1': production,
+    'homeboard-household-planner-last-known-good-v1': production,
+  } });
+  await page.locator('#closeSettingsButton').click();
+  await page.locator('#taskOverviewButton').click();
+  assert.equal(await page.locator('#taskOverviewList .task-overview-item').count(), 0);
+  assert.equal(await page.locator('#anyDayBoard').isVisible(), false);
+  assert.equal(await page.evaluate(() => localStorage.getItem('homeboard-household-planner-v1')), production);
+  assert.equal(await page.evaluate(() => localStorage.getItem('homeboard-household-planner-last-known-good-v1')), production);
+  assert.equal(requests.length, 0);
 });
 
 test('staging ignores a saved production connection and refuses its saved session', async t => {
@@ -114,6 +132,7 @@ test('existing Development customers stay signed in after automatic configuratio
 
 test('the production customer flow still uses its own fixed connection', async t => {
   const { page } = await open(t, { base: productionUrl });
+  assert.deepEqual(await page.evaluate(() => [state.data.tasks, state.data.todos, state.data.groceries]), [[], [], []]);
   assert.equal(await page.evaluate(() => syncState.config.url), productionProject);
   assert.equal(await page.locator('#syncConfigFields').isVisible(), false);
   assert.equal(await page.locator('#syncStatus').textContent(), 'Sign in to your Homeboard account.');

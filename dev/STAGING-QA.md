@@ -41,6 +41,8 @@ If an older database returns `column reference "household_id" is ambiguous`, the
 
 ## Separate household planners
 
+For a customer with no households, creating their first household adds exactly two clearly labelled example tasks: a flexible weekly tidy-up and a Sunday calendar task. Both must be editable/deletable normally and stay changed after sync/reload. Joining an existing household must not add examples. A fresh signed-out Development board starts empty and must not add the pilot football schedule, groceries or to-dos. Existing saved planners are preserved; this is not a cleanup migration.
+
 1. Create a fresh synthetic household while viewing an existing one. The new household should be selected automatically and start empty. Reload: it must still be empty.
 2. Add an item to the new household, switch back, and confirm each household shows only its own entries. Repeat for groceries, scheduled tasks and completion/undo state.
 3. Keep two tabs on different households and sync both. Neither tab should upload its planner to the other household.

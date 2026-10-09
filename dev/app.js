@@ -14,7 +14,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261009-04-staging';
+const APP_VERSION = '20261009-05-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -2461,6 +2461,7 @@ function renderHouseholdUI() {
 
   const households = householdState.households || [];
   const selected = getSelectedHousehold();
+  accountElement('firstHouseholdExamplesHint').hidden = !householdState.loaded || households.length > 0;
   accountElement('householdOptions').hidden = !selected || selected.role !== 'owner';
   accountElement('deleteHouseholdButton').disabled = householdState.loading || householdDeleteBusy || accountBusy;
   if (els.householdSelect) {
@@ -2868,6 +2869,9 @@ function renderInvitationList() {
 }
 
 async function createHouseholdFromUI() {
+  if (!syncState.session || householdState.loading) return;
+  const generation = syncState.generation;
+  const firstHousehold = householdState.loaded && householdState.households.length === 0;
   const name = String(els.householdNameInput && els.householdNameInput.value || '').trim();
   if (!name) {
     setHouseholdStatus('Enter a household name first.', 'error');
@@ -2880,14 +2884,40 @@ async function createHouseholdFromUI() {
     els.householdNameInput.value = '';
     if (householdLoadPromise) await householdLoadPromise;
     await loadHouseholds(true, householdId);
+    if (generation !== syncState.generation) return;
     if (!householdState.loaded) throw new Error('Household created. Refresh Household settings to open it.');
+    if (householdState.selectedHouseholdId !== householdId) return;
+    const examplesAdded = firstHousehold && !state.data.tasks.length;
+    if (examplesAdded) {
+      state.data.tasks = createExampleTasks();
+      state.weekStart = startOfWeek(new Date());
+      persist({ sync: false });
+      render();
+    }
     await syncNow(false);
-    setHouseholdStatus('Household created. You can now invite your partner.', 'connected');
+    if (generation !== syncState.generation) return;
+    setHouseholdStatus(examplesAdded
+      ? 'Household created with two example tasks. Edit or delete them to make this planner yours.'
+      : 'Household created. You can now invite your partner.', 'connected');
   } catch (error) {
     setHouseholdStatus(error.message || 'The household could not be created.', 'error');
     householdState.loading = false;
     renderHouseholdUI();
   }
+}
+
+function createExampleTasks() {
+  const week = startOfWeek(new Date());
+  const weekKey = dateKey(week);
+  const sunday = dateKey(addDays(week, 6));
+  const common = { assignee: 'both', kind: 'task', recurrence: 'weekly', reminder: 'none',
+    recurrenceStartWeek: weekKey, updatedAt: nowIso() };
+  return [
+    Object.assign({}, common, { id: createId(), title: 'Example: Weekly tidy-up', anyDay: true,
+      anyDayDate: weekKey, nextAnyDayDate: weekKey, recurrenceStartDate: weekKey, startTime: '', endTime: '' }),
+    Object.assign({}, common, { id: createId(), title: 'Example: Plan next week', anyDay: false,
+      date: sunday, recurrenceStartDate: sunday, startTime: '18:00', endTime: '18:15' }),
+  ];
 }
 
 async function renameHouseholdFromUI() {
@@ -3295,7 +3325,8 @@ function loadData() {
   } catch (error) {
     console.warn('Homeboard data could not be loaded', error);
   }
-  return activePlannerScope || storageGeneration ? createEmptyPlanner() : createStarterData();
+  // Examples are added only when a customer creates their first household.
+  return createEmptyPlanner();
 }
 
 function readStoredData(key) {
@@ -3485,8 +3516,8 @@ function importFootballSchedule() {
 }
 
 function applyDataMigrations() {
-  // The old pilot's starter schedule belongs only to its local board.
-  let changed = activePlannerScope ? false : importFootballSchedule();
+  // Saved pilot entries remain intact; never import its schedule automatically.
+  let changed = false;
   const meta = state.data.meta || (state.data.meta = {});
   if (meta.volunteeringStartFixVersion !== '20260923-v2') {
     state.data.tasks.forEach((task) => {

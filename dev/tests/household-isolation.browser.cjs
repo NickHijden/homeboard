@@ -64,7 +64,7 @@ async function setup(t, options = {}) {
   }, { origin, project, user, legacy: options.legacy || data('Shared original') });
   const page = await context.newPage(); page.setDefaultTimeout(10000);
   await page.goto(origin);
-  await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('synced just now'));
+  await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.toLowerCase().includes('synced just now'));
   await page.locator('#settingsButton').click();
   return { page, context, cloud };
 }
@@ -88,6 +88,51 @@ test('creating a household selects it immediately and starts empty without copyi
   assert.equal(cloud.requests.some(r => r.path === '/rest/v1/planner_documents'), false);
   await page.reload(); await page.waitForFunction(() => !syncState.busy && householdState.loaded);
   assert.deepEqual(await page.evaluate(() => [state.data.tasks, state.data.todos, state.data.groceries]), [[], [], []]);
+});
+
+test('a first household gets two editable examples, one flexible and one scheduled; edits and deletion survive reload', async t => {
+  const { page, cloud } = await setup(t, { cloud: { households: [] } });
+  assert.equal(await page.locator('#firstHouseholdExamplesHint').isVisible(), true);
+  await page.locator('#householdNameInput').fill('My first home');
+  await page.locator('#createHouseholdButton').click();
+  await page.waitForFunction(() => document.querySelector('#householdStatus').textContent.includes('two example tasks'));
+  await synced(page);
+  const tasks = await page.evaluate(() => state.data.tasks);
+  assert.equal(tasks.length, 2);
+  assert.deepEqual(tasks.map(t => t.title), ['Example: Weekly tidy-up', 'Example: Plan next week']);
+  assert.equal(tasks.every(t => t.recurrence === 'weekly' && t.reminder === 'none'), true);
+  assert.deepEqual(cloud.docs.created.tasks.map(t => t.id), tasks.map(t => t.id));
+  assert.deepEqual(cloud.docs.created.todos, [], 'No private tasks or sample lists are copied into the household');
+  assert.equal(cloud.private.todos[0].title, 'Private account item');
+  assert.equal(await page.locator('#firstHouseholdExamplesHint').isVisible(), false);
+  await page.locator('#closeSettingsButton').click();
+  assert.ok(await page.locator('#anyDayBoard').innerText().then(text => text.includes('Example: Weekly tidy-up')));
+  assert.ok(await page.locator('#weekGrid').innerText().then(text => text.includes('Example: Plan next week')));
+  await page.locator('#taskOverviewButton').click();
+  await page.locator('.task-overview-item').filter({ hasText: 'Example: Weekly tidy-up' }).first().click();
+  await page.locator('#taskTitle').fill('My own weekly task');
+  await page.locator('#saveEventButton').click();
+  await page.locator('#taskOverviewButton').click();
+  await page.locator('.task-overview-item').filter({ hasText: 'Example: Plan next week' }).first().click();
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#deleteEventButton').click();
+  await synced(page);
+  await page.reload(); await page.waitForFunction(() => !syncState.busy && householdState.loaded);
+  assert.deepEqual(await page.evaluate(() => state.data.tasks.map(t => t.title)), ['My own weekly task']);
+  assert.equal(await page.evaluate(() => state.data.tasks[0].id), tasks[0].id);
+  assert.equal(cloud.docs.created.tasks.length, 1, 'Deleted examples are not inserted again on reload');
+});
+
+test('joining the first household never adds example tasks to its shared planner', async t => {
+  const { page, cloud } = await setup(t, { cloud: { households: [] } });
+  await page.locator('#inviteTokenInput').fill('synthetic-first-invitation');
+  await page.locator('#acceptInvitationButton').click();
+  await page.waitForFunction(() => document.querySelector('#householdStatus').textContent.includes('Invitation accepted'));
+  await synced(page);
+  assert.equal(await page.evaluate(() => householdState.selectedHouseholdId), 'joined');
+  assert.deepEqual(await page.evaluate(() => state.data.tasks), []);
+  assert.deepEqual(cloud.docs.joined.tasks, []);
+  assert.deepEqual(await titles(page), ['Invited planner']);
 });
 
 test('switching, editing, reload and separate tabs keep household data and deletion markers separate', async t => {
