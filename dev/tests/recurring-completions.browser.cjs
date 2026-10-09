@@ -64,10 +64,17 @@ async function setup(t, data = planner([task()])) {
     localStorage.setItem('recurrence-test-initialized', 'true');
     localStorage.setItem('homeboard-household-planner-v1', JSON.stringify(data));
     localStorage.setItem('homeboard-sync-config-v1', JSON.stringify({ url: project, key: 'synthetic-public-key' }));
+    // Offline/reconnect cases belong to an already signed-in account. They
+    // must not rely on importing an unassigned device board during sign-in.
+    const user = { id: 'synthetic-recurring-user', email: 'synthetic@example.invalid' };
+    const scope = encodeURIComponent(JSON.stringify([project, user.id, null]));
+    localStorage.setItem(`homeboard-household-planner-v1:scope:${scope}`, JSON.stringify(data));
+    localStorage.setItem('homeboard-sync-session-v1', JSON.stringify({ user, access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', expires_at: Math.floor(Date.now() / 1000) + 3600 }));
   }, { data, now, origin, project });
   const page = await context.newPage();
   page.setDefaultTimeout(10000);
   await page.goto(origin);
+  await page.waitForFunction(() => householdState.loaded && !syncState.busy);
   return { page, context, cloud };
 }
 const openChecks = (page, id = 'laundry-one') => page.locator(`#anyDayBoard .task-check[data-task-id="${id}"]`);

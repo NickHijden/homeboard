@@ -38,3 +38,13 @@ The local browser suite in `tests/privacy-flow.browser.cjs` covers these UI path
 5. Reusing the token should be rejected. A different signed-in email, an unconfirmed account, or an expired or revoked token must not gain access.
 
 If an older database returns `column reference "household_id" is ambiguous`, the operator repair is documented in `INVITATION-ACCEPTANCE-FIX.md`. Customers do not perform that setup. The real PostgreSQL regression suite runs with `node --test tests/invitation-acceptance.database.cjs` and requires Docker with an existing `postgres:16-alpine` image. Its Auth schema is synthetic; live signup and confirmation delivery still need the checks above.
+
+## Separate household planners
+
+1. Create a fresh synthetic household while viewing an existing one. The new household should be selected automatically and start empty. Reload: it must still be empty.
+2. Add an item to the new household, switch back, and confirm each household shows only its own entries. Repeat for groceries, scheduled tasks and completion/undo state.
+3. Keep two tabs on different households and sync both. Neither tab should upload its planner to the other household.
+4. Make an offline edit, switch away and back, then reconnect. The edit should survive only in its original household.
+5. Joining an invitation must display the invited planner without copying the previous local/private/household board into it.
+
+See `HOUSEHOLD-ISOLATION-FIX.md` for the legacy-cache preservation behavior and browser regressions. Entries copied into cloud storage by an older build are not automatically removed; use a new test household to verify an empty start.

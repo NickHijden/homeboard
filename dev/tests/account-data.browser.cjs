@@ -134,7 +134,7 @@ test('failed deletion preserves planner, does not sign out on a known password f
   await review(page); await confirm(page);
   await page.waitForFunction(() => document.querySelector('#deleteAccountStatus').textContent.includes('Password confirmation failed'));
   assert.equal(await page.locator('#deleteAccountPassword').inputValue(), '');
-  const data = await page.evaluate(() => ({ session: localStorage.getItem('homeboard-sync-session-v1'), data: JSON.parse(localStorage.getItem('homeboard-household-planner-v1')) }));
+  const data = await page.evaluate(() => ({ session: localStorage.getItem(SYNC_SESSION_KEY), data: JSON.parse(localStorage.getItem(scopedStorageKey(STORAGE_KEY, activePlannerScope))) }));
   assert.ok(data.session);
   assert.equal(data.data.todos[0].title, 'Private device item');
 });
@@ -158,9 +158,11 @@ test('successful deletion clears this environment, other tabs, IndexedDB, and su
   const stored = await page.evaluate(async () => {
     const db = await new Promise(resolve => { const r = indexedDB.open(IDB_NAME); r.onsuccess = () => resolve(r.result); });
     const data = await new Promise(resolve => { const r = db.transaction(IDB_STORE).objectStore(IDB_STORE).get('current'); r.onsuccess = () => resolve(r.result); }); db.close();
-    return { session: localStorage.getItem(SYNC_SESSION_KEY), legacy: localStorage.getItem('homeboard-data'), other: localStorage.getItem('homeboard-household-planner-v1-staging'), data };
+    return { session: localStorage.getItem(SYNC_SESSION_KEY), legacy: localStorage.getItem('homeboard-data'), other: localStorage.getItem('homeboard-household-planner-v1-staging'), data,
+      remainingScoped: Object.keys(localStorage).filter(key => [STORAGE_KEY, BACKUP_STORAGE_KEY, HOUSEHOLD_SELECTION_KEY].some(base => key.startsWith(`${base}:scope:`))) };
   });
   assert.equal(stored.session, null); assert.equal(stored.legacy, null);
+  assert.deepEqual(stored.remainingScoped, [], 'Deletion removes every planner and selection cache in this environment');
   assert.equal(stored.other, 'unrelated environment'); assert.deepEqual(stored.data.data.todos, []);
   await page.reload();
   assert.equal(await page.evaluate(() => state.data.tasks.length + state.data.todos.length + state.data.groceries.length), 0);
