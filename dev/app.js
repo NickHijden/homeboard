@@ -14,7 +14,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261009-05-staging';
+const APP_VERSION = '20261009-06-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -98,6 +98,7 @@ const householdState = {
 };
 let householdLoadPromise = null;
 let householdLoadGeneration = -1;
+let invitationState = null;
 let activePlannerScope = plannerScopeFor(syncState.session, householdState.selectedHouseholdId);
 let plannerGeneration = 0;
 let plannerRevision = 0;
@@ -2446,6 +2447,7 @@ function setSyncStatus(message, type) {
 
 function renderHouseholdUI() {
   if (!HOUSEHOLD_UI_ENABLED || !els.householdSection) return;
+  const invitations = syncInvitationContext();
   const signedIn = Boolean(syncState.session);
   if (els.householdAuthStatus) {
     els.householdAuthStatus.textContent = signedIn
@@ -2471,10 +2473,11 @@ function renderHouseholdUI() {
         ${escapeHtml(household.household_name)} · ${escapeHtml(household.role)}
       </option>
     `).join('');
-    els.householdSelect.disabled = householdState.loading || !households.length;
+    els.householdSelect.disabled = householdState.loading || invitations.busy || !households.length;
   }
   if (els.createHouseholdButton) els.createHouseholdButton.disabled = householdState.loading;
-  if (els.createInvitationButton) els.createInvitationButton.disabled = householdState.loading || !selected || selected.role !== 'owner';
+  if (els.createInvitationButton) els.createInvitationButton.disabled = householdState.loading || invitations.busy || !selected || selected.role !== 'owner';
+  if (els.copyInvitationButton) els.copyInvitationButton.disabled = invitations.busy;
   if (els.acceptInvitationButton) els.acceptInvitationButton.disabled = householdState.loading;
   if (els.householdInvitePanel) els.householdInvitePanel.hidden = !selected || selected.role !== 'owner';
   if (els.householdRenamePanel) els.householdRenamePanel.hidden = !selected || selected.role !== 'owner';
@@ -2837,33 +2840,86 @@ async function handlePlatformAdminListClick(event) {
 }
 
 async function loadHouseholdInvitations() {
-  const selected = getSelectedHousehold();
-  if (!selected || selected.role !== 'owner') {
-    householdState.invitations = [];
-    renderInvitationList();
-    return;
-  }
-  try {
-    const rows = await householdRpc('list_household_invitations', { target_household_id: selected.household_id });
-    householdState.invitations = Array.isArray(rows) ? rows : [];
-  } catch (error) {
-    householdState.invitations = [];
-  }
+  const context = syncInvitationContext();
+  if (!context.householdId) return;
+  const requestId = ++context.requestId;
+  context.loading = true;
+  context.error = false;
   renderInvitationList();
+  try {
+    const rows = await householdRpc('list_household_invitations', { target_household_id: context.householdId });
+    if (syncInvitationContext() !== context || context.requestId !== requestId) return;
+    if (!Array.isArray(rows)) throw new Error('Invitation list unavailable');
+    householdState.invitations = Array.isArray(rows) ? rows : [];
+    if (context.link) {
+      const current = rows.find(item => item.invitation_id === context.link.id);
+      if (!current || invitationStatus(current) !== 'Pending' || current.expires_at !== context.link.expiresAt) clearInvitationLink();
+    }
+  } catch (error) {
+    if (syncInvitationContext() !== context || context.requestId !== requestId) return;
+    householdState.invitations = [];
+    context.error = true;
+  } finally {
+    if (syncInvitationContext() === context && context.requestId === requestId) {
+      context.loading = false;
+      renderInvitationList();
+    }
+  }
+}
+
+// Invitation responses and freshly generated links belong to one owner/session.
+// A late request must never populate another household or a later sign-in.
+function syncInvitationContext() {
+  const selected = getSelectedHousehold();
+  const householdId = syncState.session && selected && selected.role === 'owner' ? selected.household_id : '';
+  if (!invitationState || invitationState.householdId !== householdId || invitationState.generation !== syncState.generation) {
+    invitationState = { householdId, generation: syncState.generation, requestId: 0, loading: false, error: false, busy: false, link: null };
+    householdState.invitations = [];
+    clearInvitationLink();
+  }
+  return invitationState;
+}
+
+function clearInvitationLink() {
+  if (invitationState) invitationState.link = null;
+  if (els.invitationLinkInput) els.invitationLinkInput.value = '';
+  if (els.invitationLinkBox) els.invitationLinkBox.hidden = true;
+  const recipient = accountElement('invitationLinkRecipient');
+  if (recipient) recipient.textContent = '';
+}
+
+function invitationStatus(invitation) {
+  return invitation.accepted_at ? 'Accepted' : invitation.revoked_at ? 'Revoked' : new Date(invitation.expires_at) <= new Date() ? 'Expired' : 'Pending';
 }
 
 function renderInvitationList() {
   if (!els.invitationList) return;
+  const context = syncInvitationContext();
+  if (!context.householdId) {
+    els.invitationList.innerHTML = '';
+    return;
+  }
+  if (context.error) {
+    els.invitationList.innerHTML = '<p class="household-empty">Invitations could not be loaded. <button type="button" class="subtle-button" data-invitation-action="refresh">Try again</button></p>';
+    return;
+  }
+  if (context.loading) {
+    els.invitationList.innerHTML = '<p class="household-empty">Loading invitations…</p>';
+    return;
+  }
   if (!householdState.invitations.length) {
     els.invitationList.innerHTML = '<p class="household-empty">No invitations yet.</p>';
     return;
   }
   els.invitationList.innerHTML = householdState.invitations.map((invitation) => {
-    const status = invitation.accepted_at ? 'Accepted' : invitation.revoked_at ? 'Revoked' : new Date(invitation.expires_at) <= new Date() ? 'Expired' : 'Pending';
-    const canRevoke = status === 'Pending';
+    const status = invitationStatus(invitation);
+    const date = invitation.accepted_at || invitation.revoked_at || invitation.expires_at;
+    const label = status === 'Accepted' ? 'Accepted · joined' : status === 'Revoked' ? 'Revoked' : status === 'Expired' ? 'Expired' : 'Pending · expires';
+    const disabled = context.busy || householdState.loading ? 'disabled' : '';
+    const action = (name, text) => `<button class="subtle-button" type="button" data-invitation-action="${name}" data-invitation-id="${escapeAttribute(invitation.invitation_id)}" ${disabled}>${text}</button>`;
     return `<div class="invitation-row">
-      <div><strong>${escapeHtml(invitation.invited_email)}</strong><span>${status} · expires ${escapeHtml(formatLongDate(new Date(invitation.expires_at)))}</span></div>
-      ${canRevoke ? `<button class="subtle-button" type="button" data-invitation-action="revoke" data-invitation-id="${escapeAttribute(invitation.invitation_id)}">Revoke</button>` : ''}
+      <div class="invitation-details"><strong>${escapeHtml(invitation.invited_email)}</strong><span>${label} ${escapeHtml(formatLongDate(new Date(date)))}</span></div>
+      <div class="invitation-actions">${status === 'Pending' || status === 'Expired' ? action('renew', 'Renew link') : ''}${status === 'Pending' ? action('revoke', 'Revoke') : ''}</div>
     </div>`;
   }).join('');
 }
@@ -2950,6 +3006,7 @@ async function renameHouseholdFromUI() {
 }
 
 async function createInvitationFromUI() {
+  if (!syncState.session || householdState.loading || syncInvitationContext().busy) return;
   const selected = getSelectedHousehold();
   const email = String(els.inviteEmailInput && els.inviteEmailInput.value || '').trim();
   if (!selected || selected.role !== 'owner') {
@@ -2960,29 +3017,9 @@ async function createInvitationFromUI() {
     setHouseholdStatus('Enter your partner’s email address first.', 'error');
     return;
   }
-  try {
-    householdState.loading = true;
-    renderHouseholdUI();
-    const result = await householdRpc('create_household_invitation', {
-      target_household_id: selected.household_id,
-      target_email: email,
-      ttl_hours: 168,
-    });
-    const invitation = Array.isArray(result) ? result[0] : result;
-    if (!invitation || !invitation.token) throw new Error('The invitation was created without a token. Please try again.');
-    const link = new URL(window.location.href);
-    link.searchParams.set('invite', invitation.token);
-    els.invitationLinkInput.value = link.toString();
-    els.invitationLinkBox.hidden = false;
-    els.inviteEmailInput.value = '';
-    await loadHouseholdInvitations();
-    setHouseholdStatus('Invitation created. Copy the link and send it to your partner.', 'connected');
-  } catch (error) {
-    setHouseholdStatus(error.message || 'The invitation could not be created.', 'error');
-  } finally {
-    householdState.loading = false;
-    renderHouseholdUI();
-  }
+  await mutateInvitation('create_household_invitation', {
+    target_household_id: selected.household_id, target_email: email, ttl_hours: 168,
+  }, 'Invitation created. Copy the link and send it to your partner.');
 }
 
 async function acceptInvitationFromUI() {
@@ -3016,19 +3053,62 @@ async function acceptInvitationFromUI() {
 }
 
 async function handleInvitationListClick(event) {
-  const button = event.target.closest('[data-invitation-action="revoke"]');
-  if (!button) return;
-  try {
-    householdState.loading = true;
-    renderHouseholdUI();
-    await householdRpc('revoke_household_invitation', { target_invitation_id: button.dataset.invitationId });
+  const button = event.target.closest('[data-invitation-action]');
+  const context = syncInvitationContext();
+  if (!button || button.disabled || !context.householdId || context.busy || householdState.loading) return;
+  const action = button.dataset.invitationAction;
+  if (action === 'refresh') {
     await loadHouseholdInvitations();
-    setHouseholdStatus('Invitation revoked.', 'connected');
+    return;
+  }
+  const invitation = householdState.invitations.find(item => item.invitation_id === button.dataset.invitationId);
+  if (!invitation || context.loading || context.error) return;
+  const status = invitationStatus(invitation);
+  if (action === 'renew' && (status === 'Pending' || status === 'Expired')) {
+    if (!window.confirm(`Create a new invitation link for ${invitation.invited_email}? The old link will stop working.`)) return;
+    await mutateInvitation('renew_household_invitation', { target_invitation_id: invitation.invitation_id },
+      'New link ready for 7 days. The old link no longer works. Copy this link and send it to your partner.');
+  } else if (action === 'revoke' && status === 'Pending') {
+    if (!window.confirm(`Revoke the invitation for ${invitation.invited_email}? They will no longer be able to join with this link.`)) return;
+    await mutateInvitation('revoke_household_invitation', { target_invitation_id: invitation.invitation_id }, 'Invitation revoked. Its link no longer works.');
+  }
+}
+
+async function mutateInvitation(functionName, body, successMessage) {
+  const context = syncInvitationContext();
+  if (!context.householdId || context.busy) return;
+  context.busy = true;
+  clearInvitationLink();
+  renderHouseholdUI();
+  try {
+    const result = await householdRpc(functionName, body);
+    if (syncInvitationContext() !== context) return;
+    if (functionName !== 'revoke_household_invitation') {
+      const invitation = Array.isArray(result) ? result[0] : result;
+      if (!invitation || !invitation.token) throw new Error('No invitation link was returned. Refresh the list before trying again.');
+      const link = new URL(window.location.pathname, window.location.origin);
+      link.searchParams.set('invite', invitation.token);
+      context.link = { id: invitation.invitation_id, expiresAt: invitation.expires_at };
+      els.invitationLinkInput.value = link.toString();
+      els.invitationLinkBox.hidden = false;
+      accountElement('invitationLinkRecipient').textContent = `Send this link to ${invitation.invited_email}. No email has been sent automatically.`;
+      if (functionName === 'create_household_invitation') els.inviteEmailInput.value = '';
+    }
+    await loadHouseholdInvitations();
+    if (syncInvitationContext() === context) setHouseholdStatus(successMessage, 'connected');
   } catch (error) {
-    setHouseholdStatus(error.message || 'The invitation could not be revoked.', 'error');
+    if (syncInvitationContext() !== context) return;
+    const message = error.message || '';
+    setHouseholdStatus(/schema cache|does not exist|404/i.test(message)
+      ? 'This invitation feature is not available yet. Please try again later.'
+      : /Failed to fetch|NetworkError/i.test(message)
+        ? 'The invitation could not be confirmed. Refresh the list before trying again.'
+        : message || 'The invitation could not be updated.', 'error');
   } finally {
-    householdState.loading = false;
-    renderHouseholdUI();
+    if (syncInvitationContext() === context) {
+      context.busy = false;
+      renderHouseholdUI();
+    }
   }
 }
 
@@ -3096,6 +3176,8 @@ async function handleHouseholdMemberListClick(event) {
 }
 
 async function copyInvitationLink() {
+  const context = syncInvitationContext();
+  if (!context.householdId || context.busy || !context.link) return;
   const value = String(els.invitationLinkInput && els.invitationLinkInput.value || '');
   if (!value) return;
   try {
@@ -3103,10 +3185,11 @@ async function copyInvitationLink() {
     else {
       els.invitationLinkInput.focus();
       els.invitationLinkInput.select();
-      document.execCommand('copy');
+      if (!document.execCommand('copy')) throw new Error('Manual copy required');
     }
-    setHouseholdStatus('Invitation link copied.', 'connected');
+    if (syncInvitationContext() === context) setHouseholdStatus('Invitation link copied. Send it to your partner.', 'connected');
   } catch (error) {
+    if (syncInvitationContext() !== context) return;
     els.invitationLinkInput.focus();
     els.invitationLinkInput.select();
     setHouseholdStatus('Select the link and copy it manually.', 'error');

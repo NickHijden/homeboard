@@ -31,6 +31,8 @@ The local browser suite in `tests/privacy-flow.browser.cjs` covers these UI path
 
 ## Household invitations
 
+For renewal, revocation confirmations and the clearer invitation statuses, apply the one-time Development migration and follow [`INVITATION-MANAGEMENT-SETUP.md`](INVITATION-MANAGEMENT-SETUP.md). Creating or renewing a link does not send an email automatically.
+
 1. In one private browser session, sign in as the owner of a synthetic Development household. Add a recognizable test planner item and create an invitation for a second test email.
 2. In a separate browser profile, create the second account through the normal staging signup form, confirm its email, then sign in. No project URL or key should be requested.
 3. Paste the invitation token and choose Join. Confirm the household name and shared test item appear. The owner should see the invitation marked accepted and the second account listed as a member.

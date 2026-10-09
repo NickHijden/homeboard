@@ -366,7 +366,10 @@ html.privacy-page, html.privacy-page body { height: auto; min-height: 100%; over
 .invitation-link-box { margin-top: 4px; padding: 10px; border-radius: 11px; background: var(--mint-soft); }
 .invitation-link-box .large-input { margin-bottom: 0; background: #fff; font-size: 10px; }
 .invitation-list { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; }
-.invitation-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f0f4; }
+.invitation-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f0f4; }
+.invitation-details { flex: 1 1 180px; min-width: 0; }
+.invitation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.invitation-actions button { min-height: 44px; }
 .invitation-row:last-child { border-bottom: 0; }
 .invitation-row strong, .invitation-row span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .invitation-row strong { color: #4b4f59; font-size: 11px; }

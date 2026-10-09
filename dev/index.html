@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20261009-05-staging" />
+    <link rel="stylesheet" href="styles.css?v=20261009-06-staging" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -18,7 +18,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261009-05-staging</p>
+            <p class="app-version">Version 20261009-06-staging</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -344,15 +344,16 @@
                 <input class="large-input" id="inviteEmailInput" type="email" placeholder="partner@example.com" autocomplete="email" />
                 <button class="primary-button" id="createInvitationButton" type="button">Create invite</button>
               </div>
-              <p class="field-hint">The invitation link expires after 7 days and can be used once by the invited email address.</p>
+              <p class="field-hint">Copy and send the link to your partner. It expires after 7 days and works once, with their verified email. Renewing a link makes the old link stop working.</p>
               <div class="invitation-link-box" id="invitationLinkBox" hidden>
                 <label class="field-label" for="invitationLinkInput">Copy this secure link</label>
+                <p class="field-hint" id="invitationLinkRecipient"></p>
                 <div class="household-create-row">
                   <input class="large-input" id="invitationLinkInput" type="text" readonly />
                   <button class="secondary-button" id="copyInvitationButton" type="button">Copy</button>
                 </div>
               </div>
-              <div class="invitation-list" id="invitationList"></div>
+              <div class="invitation-list" id="invitationList" aria-live="polite"></div>
             </div>
 
             <div class="household-accept-panel">
@@ -473,7 +474,7 @@
     <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261009-05-staging" defer></script>
-    <script src="app.js?v=20261009-05-staging" defer></script>
+    <script src="recurrence.js?v=20261009-06-staging" defer></script>
+    <script src="app.js?v=20261009-06-staging" defer></script>
   </body>
 </html>
