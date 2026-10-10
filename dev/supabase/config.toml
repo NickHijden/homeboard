@@ -5,3 +5,7 @@ verify_jwt = false
 # The handler explicitly verifies the bearer through Auth /user and requires
 # fresh password authentication. Supports projects with newer JWT signing keys.
 verify_jwt = false
+
+[functions.household-email]
+# Handler verifies Auth and the database verifies a live session and membership.
+verify_jwt = false

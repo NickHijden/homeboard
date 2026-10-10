@@ -26,7 +26,7 @@ async function setup(t, options = {}) {
     const req = route.request(), url = new URL(req.url());
     if (url.origin === origin) {
       const file = url.pathname.slice(1) || 'index.html';
-      if (!['index.html', 'app.js', 'recurrence.js', 'styles.css', 'manifest.webmanifest', 'assets/homeboard-banner.png'].includes(file)) return route.abort();
+      if (!['index.html', 'app.js', 'recurrence.js', 'planner-features.js', 'customer.js', 'styles.css', 'manifest.webmanifest', 'assets/homeboard-banner.png', 'assets/homeboard-icon-192.png', 'assets/homeboard-icon-512.png', 'assets/homeboard-icon-180.png'].includes(file)) return route.abort();
       return route.fulfill({ contentType: ({ '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png' })[path.extname(file)] || 'application/json', body: fs.readFileSync(path.join(root, file)) });
     }
     if (url.origin !== project) return route.abort();
@@ -62,6 +62,7 @@ async function setup(t, options = {}) {
   const page = await context.newPage(); page.setDefaultTimeout(10000);
   await page.goto(origin); await page.waitForFunction(() => householdState.loaded && !syncState.busy);
   await page.locator('#settingsButton').click(); await ready(page);
+  if (options.role !== 'member') await page.locator('#emailInvitation').uncheck();
   return { page, context, cloud, reply };
 }
 const ready = page => page.waitForFunction(() => householdState.loaded && !householdState.loading && invitationState && !invitationState.loading && !invitationState.busy);

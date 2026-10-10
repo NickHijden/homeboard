@@ -35,12 +35,13 @@
   function addRecurringDate(date, recurrence) {
     if (recurrence === 'weekly') return addDays(date, 7);
     if (recurrence === 'biweekly') return addDays(date, 14);
+  if (recurrence === 'fourweekly') return addDays(date, 28);
     if (recurrence === 'quarterly') return addMonths(date, 3);
     return addMonths(date, 1);
   }
 
   function isRecurringTask(task) {
-    return ['weekly', 'biweekly', 'monthly', 'quarterly'].indexOf(task && task.recurrence) !== -1;
+    return ['weekly', 'biweekly', 'fourweekly', 'monthly', 'quarterly'].indexOf(task && task.recurrence) !== -1;
   }
 
   function getRecurringAnchorDate(task) {
@@ -59,8 +60,8 @@
 
   function matchesRecurringDate(anchor, day, recurrence) {
     if (!anchor || day < anchor) return false;
-    if (recurrence === 'weekly' || recurrence === 'biweekly') {
-      const interval = recurrence === 'biweekly' ? 14 : 7;
+    if (recurrence === 'weekly' || recurrence === 'biweekly' || recurrence === 'fourweekly') {
+      const interval = recurrence === 'fourweekly' ? 28 : recurrence === 'biweekly' ? 14 : 7;
       return Math.round((day - anchor) / 86400000) % interval === 0;
     }
     if (recurrence !== 'monthly' && recurrence !== 'quarterly') return false;

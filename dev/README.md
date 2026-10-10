@@ -61,7 +61,7 @@ Homeboard remains local-first, but it can also sync through Supabase. Create a f
 
 ## Important storage note
 
-This is intentionally local-first: no account, server, or paid service is required for the basic planner. Clearing the browser's site data can remove the planner, so use Settings → Download backup occasionally. Cloud sync is optional and uses the setup described above.
+The public customer flow requires an account and household; a separate demo works without signing in. Remembered devices can open their cached household offline. Clearing site data can remove unsynced edits, so use Settings → Download backup before a device reset. The prepared customer release adds six-month household passes with operator-approved renewal, email password recovery, member names, rotating chores, completion dates and display controls. See [CUSTOMER-RELEASE-SETUP.md](CUSTOMER-RELEASE-SETUP.md) for the required Development backend setup and outstanding live checks.
 
 ## Publish free with GitHub Pages
 

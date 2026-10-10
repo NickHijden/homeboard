@@ -8,7 +8,7 @@ const { chromium } = require('playwright');
 const root = path.resolve(__dirname, '..');
 const origin = 'http://localhost:4173';
 const project = 'https://household-test.supabase.co';
-const assets = new Set(['index.html', 'app.js', 'recurrence.js', 'styles.css', 'privacy.html', 'manifest.webmanifest', 'assets/homeboard-banner.png']);
+const assets = new Set(['index.html', 'app.js', 'recurrence.js', 'planner-features.js', 'customer.js', 'styles.css', 'privacy.html', 'manifest.webmanifest', 'assets/homeboard-banner.png', 'assets/homeboard-icon-192.png', 'assets/homeboard-icon-512.png', 'assets/homeboard-icon-180.png']);
 const user = { id: 'synthetic-owner', email: 'owner@example.invalid' };
 const home = (id, name = id) => ({ household_id: id, household_name: name, role: 'owner' });
 const data = label => ({ tasks: [], todos: label ? [{ id: label, title: label, completed: false, updatedAt: '2026-10-09T12:00:00Z' }] : [],

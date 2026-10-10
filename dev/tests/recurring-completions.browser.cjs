@@ -10,7 +10,7 @@ const root = path.resolve(__dirname, '..');
 const origin = 'http://localhost:4173';
 const project = 'https://recurrence-test.supabase.co';
 const now = '2026-10-09T12:00:00+02:00';
-const assets = new Set(['index.html', 'app.js', 'recurrence.js', 'styles.css', 'manifest.webmanifest', 'assets/homeboard-banner.png']);
+const assets = new Set(['index.html', 'app.js', 'recurrence.js', 'planner-features.js', 'customer.js', 'styles.css', 'manifest.webmanifest', 'assets/homeboard-banner.png', 'assets/homeboard-icon-192.png', 'assets/homeboard-icon-512.png', 'assets/homeboard-icon-180.png']);
 let browser;
 before(async () => { browser = await chromium.launch({ headless: true, channel: process.platform === 'win32' ? 'msedge' : undefined }); });
 after(async () => { await browser?.close(); });
@@ -272,6 +272,7 @@ test('restoring a JSON backup reconciles legacy done history before displaying a
   const { page } = await setup(t, planner([]));
   const backup = planner([task(), task('laundry-two')], [legacyCompletion()]);
   await page.locator('#settingsButton').click();
+  page.once('dialog', dialog => dialog.accept());
   await page.locator('#importInput').setInputFiles({ name: 'synthetic-recurring-backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) });
   await page.waitForFunction(() => document.querySelector('#toast').textContent === 'Backup restored');
   assert.equal(await doneItems(page).count(), 1);

@@ -11,7 +11,7 @@ const productionUrl = 'https://nickhijden.github.io/homeboard/';
 const developmentProject = 'https://axfxuqihsscjekicbgkk.supabase.co';
 const productionProject = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const developmentKey = 'sb_publishable_AJsvciGTAoJU62s-KPhUjQ_-sN4b7vB';
-const allowed = new Set(['index.html', 'app.js', 'recurrence.js', 'styles.css', 'privacy.html', 'manifest.webmanifest', 'assets/homeboard-banner.png']);
+const allowed = new Set(['index.html', 'app.js', 'recurrence.js', 'planner-features.js', 'customer.js', 'styles.css', 'privacy.html', 'manifest.webmanifest', 'assets/homeboard-banner.png', 'assets/homeboard-icon-192.png', 'assets/homeboard-icon-512.png', 'assets/homeboard-icon-180.png']);
 let browser;
 before(async () => { browser = await chromium.launch({ headless: true, channel: process.platform === 'win32' ? 'msedge' : undefined }); });
 after(async () => { await browser?.close(); });
@@ -71,14 +71,15 @@ test('a fresh staging customer signs up with only email, password and acknowledg
   await page.locator('#syncSignUpButton').click();
   await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('Signup request received'));
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, developmentProject + '/auth/v1/signup');
+  assert.equal(new URL(requests[0].url).pathname, '/auth/v1/signup');
+  assert.equal(new URL(requests[0].url).searchParams.get('redirect_to'), stagingUrl);
   assert.equal(requests[0].key, developmentKey);
   assert.equal(requests[0].body.email, 'synthetic-customer@example.com');
   assert.ok(requests[0].body.data.homeboard_acknowledgement.terms_version);
   // Reload and recovery must not introduce any starter tasks or schedules.
   await page.reload();
   assert.deepEqual(await page.evaluate(() => [state.data.tasks, state.data.todos, state.data.groceries]), [[], [], []]);
-  await page.locator('#nextWeekButton').click();
+  assert.equal(await page.locator('#accountGate').isVisible(), true);
 });
 
 test('valid production planner data is never loaded by a signed-out Development board', async t => {
@@ -89,7 +90,7 @@ test('valid production planner data is never loaded by a signed-out Development 
     'homeboard-household-planner-last-known-good-v1': production,
   } });
   await page.locator('#closeSettingsButton').click();
-  await page.locator('#taskOverviewButton').click();
+  assert.equal(await page.locator('#taskOverviewButton').isVisible(), false);
   assert.equal(await page.locator('#taskOverviewList .task-overview-item').count(), 0);
   assert.equal(await page.locator('#anyDayBoard').isVisible(), false);
   assert.equal(await page.evaluate(() => localStorage.getItem('homeboard-household-planner-v1')), production);
@@ -123,7 +124,7 @@ test('existing Development customers stay signed in after automatic configuratio
     'homeboard-sync-session-v1-staging': JSON.stringify(savedSession(developmentProject)),
     'homeboard-sync-config-v1-staging': JSON.stringify({ url: developmentProject, key: developmentKey }),
   } });
-  await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('Synced just now'));
+  await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('Board refreshed'));
   assert.equal(await page.evaluate(() => syncState.session.user.id), 'synthetic-user');
   assert.equal(await page.locator('#syncConfigFields').isVisible(), false);
   assert.ok(requests.length > 0);

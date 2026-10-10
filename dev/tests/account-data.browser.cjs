@@ -11,7 +11,7 @@ const planner = { tasks: [], todos: [{ id: 'todo-one', title: 'Private device it
 const preview = { account_id: user.id, email: user.email, platform_admin: false, households: [{ id: 'solo', name: 'Synthetic home', role: 'owner', other_members: 0 }] };
 let browser, server, origin;
 before(async () => {
-  const allowed = new Set(['index.html', 'app.js', 'recurrence.js', 'styles.css', 'privacy.html', 'sw.js', 'manifest.webmanifest', 'assets/homeboard-banner.png']);
+  const allowed = new Set(['index.html', 'app.js', 'recurrence.js', 'planner-features.js', 'customer.js', 'styles.css', 'privacy.html', 'sw.js', 'manifest.webmanifest', 'assets/homeboard-banner.png', 'assets/homeboard-icon-192.png', 'assets/homeboard-icon-512.png', 'assets/homeboard-icon-180.png']);
   server = http.createServer((req, res) => {
     const file = new URL(req.url, 'http://localhost').pathname.slice(1) || 'index.html';
     if (file === 'cloud-response') {

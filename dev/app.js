@@ -1,7 +1,8 @@
 // Keep the production keys stable. The public staging path has a separate
 // namespace because GitHub Pages paths share the same browser origin.
 const IS_STAGING_HOST = isStagingHost();
-const STORAGE_NAMESPACE = IS_STAGING_HOST ? '-staging' : '';
+const IS_DEMO_HOST = new URLSearchParams(window.location.search).get('demo') === '1';
+const STORAGE_NAMESPACE = (IS_STAGING_HOST ? '-staging' : '') + (IS_DEMO_HOST ? '-demo' : '');
 const STORAGE_KEY = `homeboard-household-planner-v1${STORAGE_NAMESPACE}`;
 const BACKUP_STORAGE_KEY = `homeboard-household-planner-last-known-good-v1${STORAGE_NAMESPACE}`;
 const IDB_NAME = `homeboard-household-planner-storage${STORAGE_NAMESPACE}`;
@@ -14,7 +15,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261009-06-staging';
+const APP_VERSION = '20261010-01-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -243,6 +244,7 @@ registerServiceWorker();
 if (loadedDataFromStorage) mirrorDataToIndexedDB(state.data);
 recoverFromIndexedDB();
 initializeSync();
+initializeCustomerFeatures();
 
 function bindEvents() {
   bindAccountDataEvents();
@@ -422,6 +424,7 @@ function initializeEnvironment() {
 }
 
 function render() {
+  renderCustomerFeatures();
   rollOverdueRecurringTasks();
   renderWeekHeader();
   renderAnyDayBoard();
@@ -440,10 +443,7 @@ function renderAnyDayBoard() {
     return;
   }
 
-  const rows = [
-    { key: 'me', label: 'Nick', tasks: openTasks.filter((task) => task.assignee === 'me' || task.assignee === 'both') },
-    { key: 'partner', label: 'Stephany', tasks: openTasks.filter((task) => task.assignee === 'partner' || task.assignee === 'both') },
-  ];
+  const rows = plannerPeople(true).map(person => ({ key: person.id, label: person.name, tasks: openTasks.filter(task => effectiveAssignee(task) === person.id) })).filter(row => row.tasks.length);
   els.anyDayBoard.hidden = false;
   els.anyDayBoard.innerHTML = `
     <div class="any-day-heading">
@@ -456,7 +456,7 @@ function renderAnyDayBoard() {
   rows.forEach((row) => {
     const rowElement = document.createElement('div');
     rowElement.className = `any-day-row any-day-row-${row.key}`;
-    rowElement.innerHTML = `<span class="any-day-label">${row.label}</span><div class="any-day-items"></div>`;
+    rowElement.innerHTML = `<span class="any-day-label">${escapeHtml(row.label)}</span><div class="any-day-items"></div>`;
     const itemsElement = rowElement.querySelector('.any-day-items');
     row.tasks.forEach((task) => {
       const item = createTaskElement({
@@ -475,17 +475,14 @@ function renderCompletedAnyDayBoard() {
   if (!els.completedAnyDayBoard) return;
   const days = Array.from({ length: 7 }, (_, index) => addDays(state.weekStart, index));
   const history = Array.isArray(state.data.anyDayCompletions) ? state.data.anyDayCompletions : [];
-  const rows = [
-    { key: 'me', label: 'Nick' },
-    { key: 'partner', label: 'Stephany' },
-  ];
+  const rows = plannerPeople(true).map(person => ({ key: person.id, label: person.name }));
   els.completedAnyDayBoard.hidden = false;
   els.completedAnyDayBoard.innerHTML = rows.map((row) => `
     <div class="completed-any-day-row completed-any-day-row-${row.key}">
-      <span class="completed-any-day-label">${row.label}</span>
+      <span class="completed-any-day-label">${escapeHtml(row.label)}</span>
       ${days.map((day) => {
         const dayHistory = history.filter((entry) => entry.completedDate === dateKey(day)
-          && (entry.assignee === row.key || entry.assignee === 'both'));
+          && entry.assignee === row.key);
         return `<div class="completed-any-day-cell">${dayHistory.map((entry) => `
           <span class="completed-any-day-item" title="Completed ${escapeAttribute(entry.title)}">
             <span class="completed-any-day-check" aria-hidden="true">✓</span>${escapeHtml(entry.title)}
@@ -573,11 +570,11 @@ function getTaskKindLabel(task) {
 }
 
 function getTaskAssigneeLabel(task) {
-  return task.assignee === 'me' ? 'Nick' : task.assignee === 'partner' ? 'Stephany' : 'Both';
+  return HomeboardPlanner.label(effectiveAssignee(task), state.data.profile);
 }
 
 function getTaskOverviewRecurrenceRank(task) {
-  const order = { weekly: 0, biweekly: 1, monthly: 2, quarterly: 3, none: 4 };
+  const order = { weekly: 0, biweekly: 1, fourweekly: 2, monthly: 3, quarterly: 4, none: 5 };
   return Object.prototype.hasOwnProperty.call(order, task.recurrence) ? order[task.recurrence] : order.none;
 }
 
@@ -623,14 +620,11 @@ function renderTaskOverview() {
     els.taskOverviewList.innerHTML = '<p class="task-overview-empty">No tasks saved yet.</p>';
     return;
   }
-  const columns = [
-    { key: 'me', label: 'Nick', tasks: getTaskOverviewRows(tasks.filter((task) => task.assignee === 'me' || task.assignee === 'both')) },
-    { key: 'partner', label: 'Stephany', tasks: getTaskOverviewRows(tasks.filter((task) => task.assignee === 'partner' || task.assignee === 'both')) },
-  ];
+  const columns = plannerPeople(true).map(person => ({ key: person.id, label: person.name, tasks: getTaskOverviewRows(tasks.filter(task => effectiveAssignee(task) === person.id)) }));
   columns.forEach((column) => {
     const section = document.createElement('section');
     section.className = 'task-overview-column';
-    section.innerHTML = `<div class="task-overview-column-heading"><h3>${column.label}</h3><span>${column.tasks.length}</span></div>`;
+    section.innerHTML = `<div class="task-overview-column-heading"><h3>${escapeHtml(column.label)}</h3><span>${column.tasks.length}</span></div>`;
     const list = document.createElement('div');
     list.className = 'task-overview-column-list';
     if (!column.tasks.length) {
@@ -754,6 +748,7 @@ function saveDaySettings(event) {
 }
 
 function clearDaySettings() {
+  if (!canEditPlanner()) return;
   if (editingDayIndex === null) return;
   const dayName = weekdayNames[editingDayIndex];
   state.data.daySettings = state.data.daySettings || {};
@@ -1041,14 +1036,11 @@ function createTaskElement({ task, dateKey: occurrenceDate, onComplete }) {
   item.setAttribute('role', 'button');
   item.setAttribute('tabindex', '0');
   item.setAttribute('aria-label', `Open ${task.title}`);
-  const assigneeLabel = task.assignee === 'me' ? 'Nick' : task.assignee === 'partner' ? 'Stephany' : 'Both';
-  const assigneeClass = task.assignee === 'me' ? 'assignee-me' : task.assignee === 'partner' ? 'assignee-partner' : 'assignee-both';
-  const assigneeDecoration = task.assignee === 'me'
-    ? '<span class="assignee-decoration nick-food-decoration" aria-hidden="true">🍛</span>'
-    : task.assignee === 'partner'
-      ? '<span class="assignee-decoration stephany-monkey-decoration" aria-hidden="true">🐒</span>'
-      : '';
-  const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'monthly' ? 'Every month' : task.recurrence === 'quarterly' ? 'Every 3 months' : '';
+  const assignedPerson = effectiveAssignee(task, occurrenceDate);
+  const assigneeLabel = HomeboardPlanner.label(assignedPerson, state.data.profile);
+  const assigneeClass = assignedPerson === 'me' ? 'assignee-me' : assignedPerson === 'partner' ? 'assignee-partner' : 'assignee-both';
+  const assigneeDecoration = '';
+  const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'fourweekly' ? 'Every 4 weeks' : task.recurrence === 'monthly' ? 'Every month' : task.recurrence === 'quarterly' ? 'Every 3 months' : '';
   const kindLabel = kind === 'expiry' ? 'Use-by' : kind === 'wellness' ? 'Wellness' : kind === 'event' ? 'Event' : 'Task';
   const eventTime = formatEventTime(task);
   item.innerHTML = `
@@ -1059,7 +1051,7 @@ function createTaskElement({ task, dateKey: occurrenceDate, onComplete }) {
       <span class="task-meta">
         ${eventTime ? `<span class="task-time">${eventTime}</span>` : '<span class="task-time untimed">Any time</span>'}
         <span class="kind-chip">${kindLabel}</span>
-        <span class="assignee-chip ${assigneeClass}"><span class="assignee-dot" aria-hidden="true"></span>${assigneeLabel}</span>
+        <span class="assignee-chip ${assigneeClass}"><span class="assignee-dot" aria-hidden="true"></span>${escapeHtml(assigneeLabel)}</span>
         ${kind === 'expiry' ? '<span aria-hidden="true">⌛</span>' : ''}
         ${recurrenceLabel ? `<span class="recurrence-icon" title="${recurrenceLabel}" aria-label="${recurrenceLabel}">↻</span>` : ''}
       </span>
@@ -1179,8 +1171,8 @@ function isDueOn(task, day) {
 
 function matchesRecurringDate(anchor, day, recurrence) {
   if (!anchor || day < anchor) return false;
-  if (recurrence === 'weekly' || recurrence === 'biweekly') {
-    const interval = recurrence === 'biweekly' ? 14 : 7;
+  if (recurrence === 'weekly' || recurrence === 'biweekly' || recurrence === 'fourweekly') {
+    const interval = recurrence === 'fourweekly' ? 28 : recurrence === 'biweekly' ? 14 : 7;
     return differenceInDays(anchor, day) % interval === 0;
   }
   if (recurrence !== 'monthly' && recurrence !== 'quarterly') return false;
@@ -1195,7 +1187,7 @@ function matchesRecurringDate(anchor, day, recurrence) {
 }
 
 function isRecurringTask(task) {
-  return ['weekly', 'biweekly', 'monthly', 'quarterly'].indexOf(task && task.recurrence) !== -1;
+  return ['weekly', 'biweekly', 'fourweekly', 'monthly', 'quarterly'].indexOf(task && task.recurrence) !== -1;
 }
 
 function getRecurringAnchorDate(task) {
@@ -1213,6 +1205,7 @@ function getRecurringAnchorDate(task) {
 }
 
 function rollOverdueRecurringTasks() {
+  if (!plannerIsWritable()) return;
   const currentWeekStart = startOfWeek(new Date());
   // Completion history survives stale task edits and is authoritative before
   // rollover decides whether an old occurrence is still unfinished.
@@ -1303,6 +1296,7 @@ function rollOverdueRecurringTasks() {
 function addRecurringDate(date, recurrence) {
   if (recurrence === 'weekly') return addDays(date, 7);
   if (recurrence === 'biweekly') return addDays(date, 14);
+  if (recurrence === 'fourweekly') return addDays(date, 28);
   if (recurrence === 'quarterly') return addMonths(date, 3);
   return addMonths(date, 1);
 }
@@ -1320,6 +1314,7 @@ function sortOccurrences(left, right) {
 }
 
 function completeTask(taskId, occurrenceDate, title) {
+  if (!canEditPlanner()) return;
   const key = completionKey(taskId, occurrenceDate);
   state.data.completions[key] = true;
   state.lastUndo = () => {
@@ -1333,6 +1328,7 @@ function completeTask(taskId, occurrenceDate, title) {
 }
 
 function completeAnyDayTask(taskId, title) {
+  if (!canEditPlanner()) return;
   reconcileAnyDayCompletions(state.data);
   const task = state.data.tasks.find((entry) => entry.id === taskId);
   if (!task || !task.anyDay || !isAnyDayTaskOpen(task)) return;
@@ -1387,7 +1383,7 @@ function recordAnyDayCompletion(task, completedDate) {
     id,
     taskId: task.id,
     title: task.title,
-    assignee: task.assignee || 'both',
+    assignee: effectiveAssignee(task),
     completedDate,
     occurrenceDate,
     recurrence: task.recurrence || 'none',
@@ -1402,6 +1398,7 @@ function recordAnyDayCompletion(task, completedDate) {
 
 function handleTaskSubmit(event) {
   event.preventDefault();
+  if (!canEditPlanner()) return;
   // Read the controls directly instead of using FormData. This is more
   // reliable on the older Safari shipped with iPad mini 2.
   const title = String(els.taskTitle.value || '').trim();
@@ -1410,6 +1407,10 @@ function handleTaskSubmit(event) {
   const startTime = String(els.eventStart && els.eventStart.value || '');
   const endTime = String(els.eventEnd && els.eventEnd.value || '');
   const recurrence = String(els.taskRepeat.value || 'none');
+  const completedInput = accountElement('taskCompletedOn').value;
+  if (completedInput && (!HomeboardPlanner.parseDate(completedInput) || completedInput > dateKey(new Date()))) {
+    showToast('Choose a valid completion date, today or earlier.'); return;
+  }
   const volunteering = isVolunteeringTask(title);
   const editingTask = editingTaskId ? state.data.tasks.find((task) => task.id === editingTaskId) : null;
   const startWeekValue = recurrence !== 'none' ? String(els.taskStartWeek && els.taskStartWeek.value || '').trim() : '';
@@ -1475,6 +1476,8 @@ function handleTaskSubmit(event) {
       delete editingTask.anyDayCompleted;
     }
   }
+  updatedTask.rotate = Boolean(accountElement('taskRotate').checked && recurrence !== 'none');
+  updatedTask.rotationAnchor = editingTask && editingTask.rotationAnchor || firstRecurrenceDate || effectiveDate;
   if (editingTask) {
     Object.assign(editingTask, updatedTask);
     if (!anyDay || recurrence === 'none') delete editingTask.nextAnyDayDate;
@@ -1488,9 +1491,15 @@ function handleTaskSubmit(event) {
     }
     if (anyDay) delete editingTask.date;
   } else {
-    state.data.tasks.push({ id: createId(), ...updatedTask });
+    updatedTask.id = createId();
+    state.data.tasks.push(updatedTask);
   }
+  const savedTask = editingTask || updatedTask;
+  const completedOn = accountElement('taskCompletedOn').value;
+  if (completedOn && !applyRecordedCompletion(savedTask, completedOn)) return;
+  const notify = accountElement('notifyHousehold').checked;
   persist();
+  if (notify) notifyPlannerChange(savedTask.id, Boolean(editingTask));
   closeDialog(els.eventDialog);
   if (effectiveDate) state.weekStart = startOfWeek(parseDate(effectiveDate));
   render();
@@ -1502,6 +1511,9 @@ function openEventDialog(options = {}) {
   editingTaskId = task ? task.id : null;
   editingOccurrenceDate = options.date || (task && task.date) || null;
   els.taskForm.reset();
+  populatePeopleChoices();
+  accountElement('taskRotate').checked = Boolean(task && task.rotate);
+  accountElement('taskCompletedOn').max = dateKey(new Date());
   if (els.dialogTitle) els.dialogTitle.textContent = task ? 'Edit event' : 'Add an event';
   if (els.saveEventButton) els.saveEventButton.textContent = task ? 'Save changes' : 'Save event';
   if (els.deleteEventButton) els.deleteEventButton.hidden = !task;
@@ -1587,6 +1599,7 @@ function updateTimeClearButtons() {
 }
 
 function deleteEditingEvent() {
+  if (!canEditPlanner()) return;
   if (!editingTaskId) return;
   const taskIndex = state.data.tasks.findIndex((entry) => entry.id === editingTaskId);
   const task = taskIndex >= 0 ? state.data.tasks[taskIndex] : null;
@@ -1618,6 +1631,7 @@ function deleteEditingEvent() {
 }
 
 function handleListClick(event) {
+  if (!canEditPlanner()) return;
   const target = event.target.closest('[data-list-action]');
   if (!target) return;
   const listName = target.dataset.listName;
@@ -1717,6 +1731,7 @@ function renderList(listName, container, countElement, emptyMessage) {
 }
 
 function clearCompleted(listName) {
+  if (!canEditPlanner()) return;
   const before = state.data[listName].length;
   const deletedItems = state.data[listName]
     .map((item, index) => ({ item: JSON.parse(JSON.stringify(item)), index }))
@@ -1752,7 +1767,7 @@ function showToast(message, actionLabel = '') {
   const action = els.toast.querySelector('#toastAction');
   if (action) {
     action.addEventListener('click', () => {
-      if (state.lastUndo) state.lastUndo();
+      if (state.lastUndo && canEditPlanner()) state.lastUndo();
       state.lastUndo = null;
       els.toast.classList.remove('visible');
     });
@@ -1761,7 +1776,7 @@ function showToast(message, actionLabel = '') {
 }
 
 function exportBackup() {
-  downloadJson(state.data, 'backup');
+  downloadJson(Object.assign({}, state.data, { _homeboardBackup: { environment: plannerEnvironment(), householdId: householdState.selectedHouseholdId || '', version: 2 } }), 'backup');
 }
 
 function downloadJson(data, kind) {
@@ -1873,6 +1888,7 @@ function accountErrorMessage(error) {
 
 async function exportAccountData() {
   if (accountBusy || !syncState.session) return;
+  const current = customerContext();
   accountBusy = true;
   renderAccountControls();
   const status = accountElement('accountDataStatus');
@@ -1880,13 +1896,16 @@ async function exportAccountData() {
   try {
     const includeDevice = accountElement('includeDeviceData').checked;
     const data = await householdRpc('export_my_account_data', {});
+    if (!current()) return;
     if (!data || data.format !== 'homeboard-account-export' || !data.account
       || data.account.id !== syncState.session.user.id) throw new Error('The account export could not be verified. Please try again.');
+    data.access_and_delivery = await householdRpc('export_my_access_records', {});
+    if (!current()) return;
     if (includeDevice) data.device_planner = JSON.parse(JSON.stringify(state.data));
     downloadJson(data, 'account-export');
     status.textContent = 'Your account export is ready. Keep this file private. Use Download backup for a restorable planner copy.';
   } catch (error) {
-    status.textContent = accountErrorMessage(error);
+    if (current()) status.textContent = accountErrorMessage(error);
   } finally {
     accountBusy = false;
     renderAccountControls();
@@ -2068,25 +2087,26 @@ function importBackup(event) {
   const files = event.target.files;
   const file = files && files.length ? files[0] : null;
   if (!file) return;
+  if (!canEditPlanner()) { event.target.value = ''; return; }
+  const importScope = activePlannerScope;
+  const importGeneration = syncState.generation;
   const reader = new FileReader();
   reader.onload = () => {
     try {
+      if (activePlannerScope !== importScope || syncState.generation !== importGeneration || !canEditPlanner()) throw new Error('The selected household changed');
       const imported = JSON.parse(reader.result);
-      if (!Array.isArray(imported.tasks) || !Array.isArray(imported.todos) || !Array.isArray(imported.groceries)) throw new Error('Invalid backup');
-      state.data = {
-        tasks: imported.tasks.map(normalizeTask),
-        todos: imported.todos.map(normalizeListItem),
-        groceries: imported.groceries.map(normalizeListItem),
-        completions: imported.completions || {},
-        anyDayCompletions: Array.isArray(imported.anyDayCompletions) ? imported.anyDayCompletions.map(normalizeAnyDayCompletion) : [],
-        daySettings: normalizeDaySettings(imported.daySettings),
-      };
+      const source = imported._homeboardBackup;
+      if (source && source.environment !== plannerEnvironment()) throw new Error('Backups cannot be moved between Development and Production');
+      const recovered = normalizePlannerData(imported.data || imported);
+      if (!recovered) throw new Error('Invalid backup');
+      if (!window.confirm('Restore this backup into the currently selected planner? Its current contents will be replaced.')) return;
+      state.data = recovered;
       persist();
       render();
       closeDialog(els.settingsDialog);
       showToast('Backup restored');
     } catch (error) {
-      showToast('That backup file could not be restored');
+      showToast(error.message || 'That backup file could not be restored');
     }
     event.target.value = '';
   };
@@ -2094,6 +2114,7 @@ function importBackup(event) {
 }
 
 function loadSyncConfig() {
+  if (IS_DEMO_HOST) return { url: '', key: '' };
   // Ignore saved manual overrides on the public staging site, including any
   // stale production connection. Local developer previews remain configurable.
   if (IS_STAGING_HOST) return { url: CENTRAL_STAGING_CONFIG.url, key: CENTRAL_STAGING_CONFIG.key };
@@ -2112,6 +2133,7 @@ function loadSyncConfig() {
 }
 
 function loadSyncSession() {
+  if (IS_DEMO_HOST) return null;
   try {
     const stored = JSON.parse(localStorage.getItem(SYNC_SESSION_KEY));
     if (storageGeneration && (!stored || stored.device_generation !== storageGeneration)) return null;
@@ -2290,7 +2312,7 @@ async function signIn(createAccount) {
   setSyncStatus(createAccount ? 'Creating account…' : 'Signing in…');
   try {
     localStorage.setItem(SYNC_EMAIL_KEY, email);
-    const path = createAccount ? '/auth/v1/signup' : '/auth/v1/token?grant_type=password';
+    const path = createAccount ? '/auth/v1/signup?redirect_to=' + encodeURIComponent(signupReturnUrl()) : '/auth/v1/token?grant_type=password';
     const body = { email, password };
     if (createAccount) {
       // Supabase stores signup data on the account, including when email
@@ -2329,6 +2351,7 @@ function resetSignupAcknowledgement() {
 }
 
 function renderAuthControls() {
+  renderCustomerFeatures();
   const signedIn = Boolean(syncState.session);
   accountElement('signedOutAccountPanel').hidden = signedIn;
   accountElement('signedInAccountPanel').hidden = !signedIn;
@@ -2446,6 +2469,7 @@ function setSyncStatus(message, type) {
 }
 
 function renderHouseholdUI() {
+  renderCustomerFeatures();
   if (!HOUSEHOLD_UI_ENABLED || !els.householdSection) return;
   const invitations = syncInvitationContext();
   const signedIn = Boolean(syncState.session);
@@ -2658,6 +2682,8 @@ async function loadHouseholds(force = false, preferredHouseholdId = '') {
       if (generation !== syncState.generation || !syncState.session || householdDeleteBusy) return [];
       if (!Array.isArray(rows)) throw new Error('The household list is unavailable.');
       householdState.households = Array.isArray(rows) ? rows : [];
+      const activationHousehold = new URLSearchParams(location.search).get('household');
+      if (!preferredHouseholdId && activationHousehold && rows.some(row => row.household_id === activationHousehold)) preferredHouseholdId = activationHousehold;
       if (preferredHouseholdId) {
         if (!rows.some(household => household.household_id === preferredHouseholdId)) throw new Error('The household is not available yet.');
         householdState.selectedHouseholdId = preferredHouseholdId;
@@ -2763,9 +2789,11 @@ async function loadPlatformAdminUI(force = false) {
     return;
   }
   if (platformAdminState.loading || (platformAdminState.loaded && !force)) return;
+  const generation = syncState.generation;
   platformAdminState.loading = true;
   try {
     const result = await householdRpc('is_platform_admin', {});
+    if (generation !== syncState.generation) return;
     const isAdmin = result === true
       || result === 'true'
       || (Array.isArray(result) && result[0] === true)
@@ -2774,6 +2802,13 @@ async function loadPlatformAdminUI(force = false) {
     platformAdminState.households = isAdmin
       ? (await householdRpc('list_platform_households', {})) || []
       : [];
+    if (generation !== syncState.generation) return;
+    if (isAdmin) {
+      const accessRows = await householdRpc('list_platform_household_access', {});
+      if (generation !== syncState.generation) return;
+      platformAdminState.households = platformAdminState.households.map(household => Object.assign({}, household,
+        (Array.isArray(accessRows) ? accessRows : []).find(row => row.household_id === household.household_id) || {}));
+    }
     platformAdminState.loaded = true;
     if (isAdmin) setPlatformAdminStatus('Platform administrator access enabled.', 'connected');
   } catch (error) {
@@ -2808,12 +2843,19 @@ function renderPlatformAdminUI() {
     const memberCount = Number(household.member_count) || 0;
     return `<div class="platform-admin-row">
       <div><strong>${escapeHtml(household.household_name)}</strong><span>${memberCount} member${memberCount === 1 ? '' : 's'} · created ${escapeHtml(formatLongDate(new Date(household.created_at)))}</span></div>
+      <div><span>${household.expires_at ? 'Access until '+escapeHtml(formatLongDate(new Date(household.expires_at))) : ''}</span>${household.renewal_requested ? '<strong>Renewal requested</strong>' : ''}</div>
+      <button class="secondary-button" type="button" data-admin-action="renew" data-household-id="${escapeAttribute(household.household_id)}">Approve 6-month pass</button>
       <button class="danger-button" type="button" data-admin-action="delete" data-household-id="${escapeAttribute(household.household_id)}">Delete</button>
     </div>`;
   }).join('');
 }
 
 async function handlePlatformAdminListClick(event) {
+  const renewButton = event.target.closest('[data-admin-action="renew"]');
+  if (renewButton) {
+    if (window.confirm('Approve a new household pass and email its activation code to the owner?')) await approveHouseholdRenewal(renewButton.dataset.householdId);
+    return;
+  }
   const button = event.target.closest('[data-admin-action="delete"]');
   if (!button) return;
   const household = platformAdminState.households.find((item) => item.household_id === button.dataset.householdId);
@@ -2929,6 +2971,11 @@ async function createHouseholdFromUI() {
   const generation = syncState.generation;
   const firstHousehold = householdState.loaded && householdState.households.length === 0;
   const name = String(els.householdNameInput && els.householdNameInput.value || '').trim();
+  const peopleInput = accountElement('newHouseholdPeople');
+  const names = peopleInput.value.split('\n').map(value => value.trim()).filter(Boolean);
+  if (names.length > 12 || names.some(value => value.length > 60)) {
+    setHouseholdStatus('Enter up to 12 names, each up to 60 characters.', 'error'); return;
+  }
   if (!name) {
     setHouseholdStatus('Enter a household name first.', 'error');
     return;
@@ -2937,21 +2984,31 @@ async function createHouseholdFromUI() {
     householdState.loading = true;
     renderHouseholdUI();
     const householdId = await householdRpc('create_household', { household_name: name });
+    if (generation !== syncState.generation) return;
     els.householdNameInput.value = '';
+    peopleInput.value = '';
     if (householdLoadPromise) await householdLoadPromise;
     await loadHouseholds(true, householdId);
     if (generation !== syncState.generation) return;
     if (!householdState.loaded) throw new Error('Household created. Refresh Household settings to open it.');
     if (householdState.selectedHouseholdId !== householdId) return;
     const examplesAdded = firstHousehold && !state.data.tasks.length;
+    if (names.length) state.data.profile = { members:names.map((person,index) => ({ id:index === 0 ? 'me' : index === 1 ? 'partner' : 'member-'+createId(),name:person })), updatedAt:nowIso() };
     if (examplesAdded) {
       state.data.tasks = createExampleTasks();
       state.weekStart = startOfWeek(new Date());
       persist({ sync: false });
       render();
     }
+    if (names.length) { persist({sync:false}); render(); }
+    await refreshHouseholdAccess();
     await syncNow(false);
     if (generation !== syncState.generation) return;
+    if (!plannerIsWritable()) {
+      accountElement('householdAccessOptions').open=true;
+      setHouseholdStatus('Household ready. Next, get your free launch pass below, activate it from your email, then invite the other members.', 'connected');
+      return;
+    }
     setHouseholdStatus(examplesAdded
       ? 'Household created with two example tasks. Edit or delete them to make this planner yours.'
       : 'Household created. You can now invite your partner.', 'connected');
@@ -3037,7 +3094,10 @@ async function acceptInvitationFromUI() {
   try {
     householdState.loading = true;
     renderHouseholdUI();
-    const joined = await householdRpc('accept_household_invitation', { raw_token: token });
+    const code = token.replace(/[ -]/g, '');
+    const joined = /^[a-f0-9]{16}$/i.test(code)
+      ? await householdRpc('accept_household_code', { invitation_code: code })
+      : await householdRpc('accept_household_invitation', { raw_token: token });
     els.inviteTokenInput.value = '';
     if (householdLoadPromise) await householdLoadPromise;
     await loadHouseholds(true, joined && joined[0] && joined[0].household_id);
@@ -3081,7 +3141,17 @@ async function mutateInvitation(functionName, body, successMessage) {
   clearInvitationLink();
   renderHouseholdUI();
   try {
-    const result = await householdRpc(functionName, body);
+    let deliveryMessage = '';
+    let result;
+    if (functionName !== 'revoke_household_invitation' && accountElement('emailInvitation').checked) {
+      const session = await ensureSyncSession();
+      const delivery = await syncRequest('/functions/v1/household-email', { method: 'POST', body: {
+        action: functionName === 'create_household_invitation' ? 'invite' : 'renew', household_id: context.householdId,
+        email: body.target_email, invitation_id: body.target_invitation_id, request_id: createId(),
+      } }, session.access_token);
+      result = delivery.invitation;
+      deliveryMessage = delivery.message;
+    } else result = await householdRpc(functionName, body);
     if (syncInvitationContext() !== context) return;
     if (functionName !== 'revoke_household_invitation') {
       const invitation = Array.isArray(result) ? result[0] : result;
@@ -3091,11 +3161,13 @@ async function mutateInvitation(functionName, body, successMessage) {
       context.link = { id: invitation.invitation_id, expiresAt: invitation.expires_at };
       els.invitationLinkInput.value = link.toString();
       els.invitationLinkBox.hidden = false;
-      accountElement('invitationLinkRecipient').textContent = `Send this link to ${invitation.invited_email}. No email has been sent automatically.`;
+      accountElement('invitationLinkRecipient').textContent = deliveryMessage
+        ? `${deliveryMessage}${invitation.code ? ' Code: '+invitation.code : ''}`
+        : `Send this link to ${invitation.invited_email}. No email has been sent automatically.`;
       if (functionName === 'create_household_invitation') els.inviteEmailInput.value = '';
     }
     await loadHouseholdInvitations();
-    if (syncInvitationContext() === context) setHouseholdStatus(successMessage, 'connected');
+    if (syncInvitationContext() === context) setHouseholdStatus(deliveryMessage || successMessage, 'connected');
   } catch (error) {
     if (syncInvitationContext() !== context) return;
     const message = error.message || '';
@@ -3197,7 +3269,9 @@ async function copyInvitationLink() {
 }
 
 async function householdRpc(functionName, body) {
+  const generation = syncState.generation;
   const session = await ensureSyncSession();
+  if (generation !== syncState.generation) throw new Error('This account session has changed.');
   if (!session) throw new Error('Sign in to manage your household.');
   return syncRequest(`/rest/v1/rpc/${functionName}`, { method: 'POST', body }, session.access_token);
 }
@@ -3232,18 +3306,22 @@ async function syncNow(manual, authenticatedNow) {
     if (generation !== syncState.generation || syncingPlannerGeneration !== plannerGeneration || syncState.deleting) return;
     const remote = await fetchRemoteData(session, household);
     if (generation !== syncState.generation || syncingPlannerGeneration !== plannerGeneration || syncState.deleting) return;
+    if (household && !MANUAL_SYNC_CONFIG_ALLOWED) await refreshHouseholdAccess();
+    if (generation !== syncState.generation || syncingPlannerGeneration !== plannerGeneration || syncState.deleting) return;
     const localBefore = JSON.stringify(state.data);
     const merged = remote ? mergePlannerData(state.data, remote) : state.data;
     const mergedSignature = JSON.stringify(merged);
     state.data = merged;
     persist({ sync: false });
     if (mergedSignature !== localBefore) render();
-    if (!remote || JSON.stringify(remote) !== mergedSignature) await pushRemoteData(session, merged, household);
+    const writable = plannerIsWritable();
+    if (writable && (!remote || JSON.stringify(remote) !== mergedSignature)) await pushRemoteData(session, merged, household);
     if (generation !== syncState.generation || syncingPlannerGeneration !== plannerGeneration || syncState.deleting) return;
-    renderSyncStatus(household ? 'Connected. Shared household synced just now.' : 'Connected. Synced just now.', 'connected');
+    renderSyncStatus(!writable ? 'Connected. Board refreshed; editing requires active household access.' : household ? 'Connected. Shared household synced just now.' : 'Connected. Synced just now.', 'connected');
+    return writable;
   } catch (error) {
     if (generation !== syncState.generation || (syncingPlannerGeneration !== null && syncingPlannerGeneration !== plannerGeneration) || syncState.deleting) return;
-    if (/401|403|expired|invalid/i.test(error.message || '')) {
+    if (error.status === 401 || /session expired|invalid.*(token|jwt)/i.test(error.message || '')) {
       syncState.session = null;
       localStorage.removeItem(SYNC_SESSION_KEY);
       stopSyncPolling();
@@ -3318,6 +3396,7 @@ async function pushRemoteData(session, data, household) {
 }
 
 async function syncRequest(path, options, accessToken) {
+  if (IS_DEMO_HOST) throw new Error('The demo does not connect to household accounts.');
   const generation = syncState.generation;
   if (accessToken && (!syncState.session || accessToken !== syncState.session.access_token)) throw new Error('This account session has changed.');
   if (syncState.deleting && path !== '/functions/v1/delete-account') throw new Error('Account deletion is in progress.');
@@ -3357,6 +3436,7 @@ function mergePlannerData(local, remote) {
     completions: Object.assign({}, remote.completions || {}, local.completions || {}),
     anyDayCompletions: mergeItems(local.anyDayCompletions || [], remote.anyDayCompletions || [], deleted.anyDayCompletions),
     daySettings: mergeDaySettings(local.daySettings, remote.daySettings),
+    profile: HomeboardPlanner.newerProfile(local.profile, remote.profile),
     meta: Object.assign({}, remote.meta || {}, local.meta || {}, { demo: false, deleted }),
   };
   reconcileAnyDayCompletions(merged);
@@ -3480,6 +3560,7 @@ function normalizePlannerData(stored) {
     completions: stored.completions && typeof stored.completions === 'object' ? stored.completions : {},
     anyDayCompletions: Array.isArray(stored.anyDayCompletions) ? stored.anyDayCompletions.map(normalizeAnyDayCompletion) : [],
     daySettings: normalizeDaySettings(stored.daySettings),
+    profile: stored.profile && typeof stored.profile === 'object' ? stored.profile : {},
     meta: stored.meta && typeof stored.meta === 'object' ? stored.meta : {},
   };
   reconcileAnyDayCompletions(normalized);
@@ -3491,7 +3572,7 @@ function normalizeAnyDayCompletion(entry) {
   Object.keys(entry || {}).forEach((key) => { normalized[key] = entry[key]; });
   normalized.id = normalized.id || createId();
   normalized.title = String(normalized.title || '').trim();
-  normalized.assignee = ['me', 'partner', 'both'].indexOf(normalized.assignee) !== -1 ? normalized.assignee : 'both';
+  normalized.assignee = /^[a-zA-Z0-9_-]{1,80}$/.test(normalized.assignee || '') ? normalized.assignee : 'both';
   normalized.completedDate = String(normalized.completedDate || '');
   normalized.updatedAt = normalized.updatedAt || normalized.completedAt || nowIso();
   return normalized;

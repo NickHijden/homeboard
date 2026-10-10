@@ -1,5 +1,11 @@
 # Homeboard staging QA checklist
 
+Development release `20261010-01-staging` replaces the older interface that lacked activation controls. On 2026-10-10, before publication, the site was verified to still serve `20261009-06-staging` while the Development access RPCs and email handler were installed. This mismatch allowed an emailed pass link to open a board without activating it. The new interface opens the activation controls from the link, distinguishes first activation from expiry, and displays the confirmed expiry date. Scheduled renewal emails and independent external backup storage still need the user's destination approvals.
+
+2026-10-10 activation fix: **36 targeted checks passed, 0 failed**, covering the emailed activation link, access after two minutes and reload, exact six-calendar-month SQL duration, renewal permissions, expiry enforcement, signup, environment isolation and older-iPad syntax. Live unauthenticated probes confirmed the new access/export/admin RPCs reject anonymous access and the deployed email handler rejects an invalid request without sending email. These probes do not validate a customer's activated pass or email delivery.
+
+2026-10-09 candidate validation: **169 checks passed, 0 failed** across browser, unit, email-handler and real isolated PostgreSQL suites. This includes the combined SQL upgrade applied twice, pass permissions/expiry, account cleanup after an email change, metadata-only administrator renewal requests, password recovery, household isolation, offline storage, recurrence, and an encrypted synthetic database restore. All Auth and email provider calls were mocked. No customer data was read, emailed, deleted or uploaded by these tests. Phone/settings and quiet-mode previews were also inspected. Physical-device, live Supabase, actual delivery and real-project restore checks remain pending.
+
 Use this checklist on the public staging site before any production release:
 
 `https://nickhijden.github.io/homeboard/dev/`

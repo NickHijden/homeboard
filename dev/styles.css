@@ -370,6 +370,29 @@ html.privacy-page, html.privacy-page body { height: auto; min-height: 100%; over
 .invitation-details { flex: 1 1 180px; min-width: 0; }
 .invitation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .invitation-actions button { min-height: 44px; }
+.account-gate { max-width: 620px; margin: 24px auto; padding: 24px; background: #fff; border-radius: 20px; line-height: 1.5; }
+.account-gate a { display: inline-block; padding: 14px; text-decoration: none; }
+.requires-account .dashboard-grid, .requires-account #anyDayBoard, .requires-account #addTaskButton, .requires-account #taskOverviewButton { display: none !important; }
+.access-banner { padding: 12px 20px; margin: 0; background: #fff3d4; color: #614a19; text-align: center; }
+.customer-options { margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.customer-options summary { cursor: pointer; font-weight: 700; padding: 8px 0; }
+.customer-options textarea { width: 100%; box-sizing: border-box; }
+.any-day-row-both .any-day-label { color: #8e672a; }
+[data-text-size="large"] .task-title, [data-text-size="large"] .list-row-text, [data-text-size="large"] .any-day-label { font-size: 14px !important; }
+[data-text-size="larger"] .task-title, [data-text-size="larger"] .list-row-text, [data-text-size="larger"] .any-day-label { font-size: 17px !important; }
+.quiet-evening { --ink: #e8e8f0; --muted: #bbbccd; --line: #424351; background: #171924; }
+.quiet-evening body, .quiet-evening .card-surface, .quiet-evening dialog, .quiet-evening .account-gate { background: #222533; color: #e8e8f0; }
+.quiet-evening .task-item, .quiet-evening .list-item, .quiet-evening .large-input, .quiet-evening .any-day-board { background: #303445; color: #eee; border-color: #52576b; }
+.quiet-evening .day-timeline, .quiet-evening .day-column, .quiet-evening .day-header, .quiet-evening .quick-add, .quiet-evening .task-overview-column { background: #282c3c; color: #e8e8f0; border-color: #52576b; }
+.quiet-evening .day-name, .quiet-evening .day-number, .quiet-evening .list-row-text { color: #e8e8f0; }
+.quiet-evening .week-summary, .quiet-evening .task-overview-summary { background: #303445; color: #bbbccd; }
+.quiet-evening .language-backdrop { opacity: .04; }
+.quiet-evening .week-banner, .quiet-evening .cleaning-motto, .quiet-evening .brand-mark { display: none; }
+.quiet-evening *, .quiet-evening *::before, .quiet-evening *::after { animation: none !important; transition: none !important; }
+.phone-overview, .phone-overview body { min-width: 1024px; overflow: auto; }
+.phone-overview .dashboard-grid { display: flex; }
+.phone-overview .side-stack { flex: 0 0 250px; }
+.phone-overview .app-shell { width: 1000px; }
 .invitation-row:last-child { border-bottom: 0; }
 .invitation-row strong, .invitation-row span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .invitation-row strong { color: #4b4f59; font-size: 11px; }
@@ -630,4 +653,9 @@ html.privacy-page, html.privacy-page body { height: auto; min-height: 100%; over
   .dashboard-grid { height: auto; }
   .time-axis-header { min-height: 48px; }
   .day-header { min-height: 48px; }
+}
+
+@media (pointer: coarse) {
+  .icon-button, .add-list-button, .edit-row, .delete-row { min-width: 44px; min-height: 44px; }
+  .primary-button, .secondary-button, .subtle-button, .danger-button { min-height: 44px; }
 }

@@ -6,10 +6,14 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20261009-06-staging" />
+    <link rel="apple-touch-icon" href="assets/homeboard-icon-180.png" />
+    <link rel="stylesheet" href="styles.css?v=20261010-01-staging" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
+    <section id="accountGate" class="account-gate" hidden aria-live="polite"></section>
+    <p id="accessBanner" class="access-banner" hidden aria-live="polite"></p>
+    <p id="demoBanner" class="access-banner" hidden>Demo board · Changes stay on this device. <a href="./">Sign in or create your household</a></p>
     <div class="app-shell">
       <header class="topbar">
         <div class="brand-lockup">
@@ -18,7 +22,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261009-06-staging</p>
+            <p class="app-version">Version 20261010-01-staging</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -152,8 +156,8 @@
             <label class="field-label" for="taskAssignee">Who?</label>
             <select class="large-input" id="taskAssignee" name="assignee">
               <option value="both">Both of us</option>
-              <option value="me">Nick</option>
-              <option value="partner">Stephany</option>
+              <option value="me">Person 1</option>
+              <option value="partner">Person 2</option>
             </select>
           </div>
           <div class="field-group">
@@ -172,10 +176,16 @@
           <option value="none">Does not repeat</option>
           <option value="weekly">Every week</option>
           <option value="biweekly">Every 2 weeks</option>
-          <option value="monthly">Every month</option>
+          <option value="fourweekly">Every 4 weeks</option>
+          <option value="monthly">Every calendar month</option>
           <option value="quarterly">Every 3 months</option>
         </select>
 
+        <label class="any-day-toggle"><input id="taskRotate" type="checkbox" /> Take turns between household members</label>
+        <label class="field-label" for="taskCompletedOn">Last completed on <span class="optional">optional · sets the next due date</span></label>
+        <input id="taskCompletedOn" class="large-input" type="date" />
+        <label class="any-day-toggle"><input id="notifyHousehold" type="checkbox" /> Email the other members about this change</label>
+        <p class="field-hint">Notifications contain a link to the board, without task details.</p>
         <label class="field-label" for="taskReminder">Email reminder <span class="optional">when notifications are connected</span></label>
         <select class="large-input" id="taskReminder" name="reminder">
           <option value="day-before">The day before</option>
@@ -266,6 +276,7 @@
           <button class="secondary-button" id="exportButton" type="button">Download backup</button>
           <label class="secondary-button file-button" for="importInput">Restore backup<input id="importInput" type="file" accept="application/json" /></label>
         </div>
+        <div id="customerSettings"></div>
         <div class="sync-section">
           <p class="eyebrow">HOMEBOARD ACCOUNT</p>
           <p class="sync-copy" id="syncCopy">Use the same Homeboard login on both devices. The first time you open Homeboard from the iPad Home Screen, sign in there once as well; Homeboard remembers the connection on this device. Your laptop does not need to stay on.</p>
@@ -283,6 +294,7 @@
           <input class="large-input" id="syncEmail" type="email" placeholder="you@example.com" autocomplete="username" />
           <label class="field-label" for="syncPassword">Password</label>
           <input class="large-input" id="syncPassword" type="password" placeholder="At least 8 characters" autocomplete="current-password" />
+          <button class="subtle-button" id="forgotPasswordButton" type="button">Forgot password?</button>
           <div class="signup-acknowledgement-panel" id="signupAcknowledgementPanel">
             <p class="field-label" id="signupAcknowledgementHeading">Before creating an account</p>
             <div class="signup-acknowledgement">
@@ -333,10 +345,13 @@
             </div>
 
             <div class="household-create-row">
-              <input class="large-input" id="householdNameInput" type="text" maxlength="120" placeholder="e.g. Nick &amp; Stephany" autocomplete="off" />
-              <button class="secondary-button" id="createHouseholdButton" type="button">Create</button>
+              <input class="large-input" id="householdNameInput" type="text" maxlength="120" placeholder="e.g. Alex &amp; Taylor" autocomplete="off" aria-label="New household name" />
             </div>
             <p class="field-hint" id="firstHouseholdExamplesHint" hidden>Your first household starts with two example tasks you can edit or delete: one flexible weekly task and one task in the calendar.</p>
+            <label class="field-label" for="newHouseholdPeople">Who lives in your new household?</label>
+            <textarea class="large-input" id="newHouseholdPeople" rows="2" maxlength="720" placeholder="Alex&#10;Taylor"></textarea>
+            <p class="field-hint">One name per line. You can add or change names later in People in this household.</p>
+            <button class="secondary-button" id="createHouseholdButton" type="button">Create household</button>
 
             <div class="household-invite-panel" id="householdInvitePanel" hidden>
               <p class="field-label">Invite your partner</p>
@@ -345,6 +360,7 @@
                 <button class="primary-button" id="createInvitationButton" type="button">Create invite</button>
               </div>
               <p class="field-hint">Copy and send the link to your partner. It expires after 7 days and works once, with their verified email. Renewing a link makes the old link stop working.</p>
+              <label class="any-day-toggle"><input id="emailInvitation" type="checkbox" checked /> Email the invitation automatically</label>
               <div class="invitation-link-box" id="invitationLinkBox" hidden>
                 <label class="field-label" for="invitationLinkInput">Copy this secure link</label>
                 <p class="field-hint" id="invitationLinkRecipient"></p>
@@ -359,7 +375,7 @@
             <div class="household-accept-panel">
               <p class="field-label">Have an invitation?</p>
               <div class="household-create-row">
-                <input class="large-input" id="inviteTokenInput" type="text" placeholder="Paste invitation token" autocomplete="off" />
+                <input class="large-input" id="inviteTokenInput" type="text" placeholder="Paste invitation link or code" autocomplete="off" />
                 <button class="secondary-button" id="acceptInvitationButton" type="button">Join</button>
               </div>
               <p class="field-hint">You must be signed in with the verified email address that received the invitation.</p>
@@ -469,12 +485,26 @@
       </form>
     </dialog>
 
-    <!-- Invisible legacy elements prevent an older cached script from stopping at startup. -->
-    <button id="installButton" type="button" hidden aria-hidden="true">Install</button>
-    <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
+    <dialog id="installDialog" class="task-dialog" aria-labelledby="installTitle"><div class="task-form"><h2 id="installTitle">Install Homeboard</h2><p id="installInstructions"></p><button id="closeInstallButton" class="secondary-button" type="button">Close</button></div></dialog>
+
+    <dialog id="passwordRecoveryDialog" class="task-dialog" aria-labelledby="passwordRecoveryTitle">
+      <form id="passwordRecoveryForm" class="task-form">
+        <h2 id="passwordRecoveryTitle">Choose a new password</h2>
+        <p id="passwordRecoveryIdentity" class="settings-copy"></p>
+        <p class="settings-copy">Your household and planner stay with your account.</p>
+        <label class="field-label" for="recoveryPassword">New password</label>
+        <input id="recoveryPassword" class="large-input" type="password" minlength="8" autocomplete="new-password" required />
+        <label class="field-label" for="recoveryPasswordAgain">Repeat new password</label>
+        <input id="recoveryPasswordAgain" class="large-input" type="password" minlength="8" autocomplete="new-password" required />
+        <p id="passwordRecoveryStatus" class="sync-status" role="status"></p>
+        <div class="dialog-actions"><button id="cancelPasswordRecovery" class="secondary-button" type="button">Cancel</button><button id="saveRecoveryPassword" class="primary-button" type="submit" disabled>Save password</button></div>
+      </form>
+    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261009-06-staging" defer></script>
-    <script src="app.js?v=20261009-06-staging" defer></script>
+    <script src="recurrence.js?v=20261010-01-staging" defer></script>
+    <script src="planner-features.js?v=20261010-01-staging" defer></script>
+    <script src="customer.js?v=20261010-01-staging" defer></script>
+    <script src="app.js?v=20261010-01-staging" defer></script>
   </body>
 </html>

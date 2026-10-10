@@ -9,7 +9,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 test('staging uses a separate browser-storage namespace', () => {
   const app = read('app.js');
   assert.match(app, /const IS_STAGING_HOST = isStagingHost\(\);/);
-  assert.match(app, /const STORAGE_NAMESPACE = IS_STAGING_HOST \? '-staging' : '';/);
+  assert.match(app, /const STORAGE_NAMESPACE = .*IS_STAGING_HOST.*'-staging'.*IS_DEMO_HOST.*'-demo'/);
   assert.match(app, /const IDB_NAME = `homeboard-household-planner-storage\$\{STORAGE_NAMESPACE\}`;/);
   assert.match(app, /const SYNC_SESSION_KEY = `homeboard-sync-session-v1\$\{STORAGE_NAMESPACE\}`;/);
 });

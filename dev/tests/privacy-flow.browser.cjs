@@ -16,7 +16,7 @@ const version = fs.readFileSync(path.join(root, 'app.js'), 'utf8')
   .match(/const PRIVACY_TERMS_VERSION = '([^']+)'/)[1];
 
 before(async () => {
-  const allowed = new Set(['index.html', 'privacy.html', 'app.js', 'recurrence.js', 'styles.css', 'sw.js', 'manifest.webmanifest', 'assets/homeboard-banner.png']);
+  const allowed = new Set(['index.html', 'privacy.html', 'app.js', 'recurrence.js', 'planner-features.js', 'customer.js', 'styles.css', 'sw.js', 'manifest.webmanifest', 'assets/homeboard-banner.png', 'assets/homeboard-icon-192.png', 'assets/homeboard-icon-512.png', 'assets/homeboard-icon-180.png']);
   server = http.createServer((request, response) => {
     let file = new URL(request.url, 'http://localhost').pathname.replace(/^\//, '') || 'index.html';
     if (!allowed.has(file)) { response.writeHead(404).end(); return; }
@@ -89,7 +89,8 @@ test('email-confirmation signup sends versioned acknowledgement and clears sensi
   await page.locator('#syncSignUpButton').click();
   await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('Signup request received'));
   assert.equal(requests.length, 1);
-  assert.ok(requests[0].url.endsWith('/auth/v1/signup'));
+  assert.equal(new URL(requests[0].url).pathname, '/auth/v1/signup');
+  assert.equal(new URL(requests[0].url).searchParams.get('redirect_to'), origin + '/');
   const acknowledgement = requests[0].body.data.homeboard_acknowledgement;
   assert.equal(acknowledgement.terms_version, version);
   assert.equal(acknowledgement.privacy_notice_version, version);
@@ -149,7 +150,7 @@ test('pending signup prevents duplicate requests and identity changes', async (t
 test('immediate signup signs in and sign-out requires a fresh acknowledgement', async (t) => {
   const { page, requests } = await setup(t, { respond: (route, request) => {
     let body = [];
-    if (request.url.endsWith('/auth/v1/signup')) body = {
+    if (new URL(request.url).pathname === '/auth/v1/signup') body = {
       access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', expires_in: 3600,
       user: { id: 'synthetic-user', email: 'privacy-test@example.com', user_metadata: request.body.data },
     };
