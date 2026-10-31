@@ -317,6 +317,8 @@ body.modal-open::before { content: ''; position: fixed; top: 0; right: 0; bottom
 .sync-section { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line); }
 .sync-copy { margin: -1px 0 16px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .sync-wide-button { width: 100%; }
+#resendConfirmationButton { display: block; min-height: 44px; margin-top: 8px; }
+#resendConfirmationButton + .field-hint { margin-top: 4px; }
 .sync-divider { height: 1px; margin: 20px 0; background: var(--line); }
 .sync-status { min-height: 18px; margin: 14px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .sync-status.connected { color: #278b6e; }

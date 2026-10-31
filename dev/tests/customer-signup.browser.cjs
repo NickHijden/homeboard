@@ -23,7 +23,7 @@ function savedSession(project) {
 }
 
 async function open(t, options = {}) {
-  const context = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 } });
+  const context = await browser.newContext({ serviceWorkers: 'block', viewport: options.viewport || { width: 390, height: 844 } });
   t.after(() => context.close());
   const base = options.base || stagingUrl;
   const requests = [];
@@ -185,6 +185,18 @@ test('confirmation resend observes provider rate limits', async t => {
   await page.locator('#resendConfirmationButton').click();
   assert.equal(requests.length, 1);
   assert.match(await page.locator('#syncStatus').innerText(), /wait a minute/);
+});
+
+test('confirmation retry stays clickable above its help text on a short tablet screen', async t => {
+  const { page, requests } = await open(t, { viewport: { width: 1024, height: 620 } });
+  const button = page.locator('#resendConfirmationButton');
+  await button.scrollIntoViewIfNeeded();
+  const buttonBox = await button.boundingBox();
+  const hintBox = await page.locator('#resendConfirmationButton + .field-hint').boundingBox();
+  assert.ok(hintBox.y >= buttonBox.y + buttonBox.height, 'Help text must not cover the retry button');
+  await button.click();
+  assert.match(await page.locator('#syncStatus').innerText(), /Enter the email address you used/);
+  assert.equal(requests.length, 0);
 });
 
 test('late confirmation-resend replies cannot replace a newer account status', async t => {
