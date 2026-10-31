@@ -39,6 +39,8 @@ The operator must already be in the existing `platform_admins` allowlist. Approv
 
 The administration list shows expiry dates and a **Renewal requested** marker. Approving a new pass clears that pending marker. This view includes access metadata only; it does not fetch planner documents.
 
+Supabase Edge Functions have changing outgoing IP addresses. Approving individual addresses in Brevo does not provide reliable API delivery. Brevo's **Settings → Security → Authorized IPs → API keys** setting can disable API IP blocking while retaining API-key authentication; this applies to all API keys in that Brevo account and removes one protection layer. Keep the secret server-side and use a dedicated key with only the necessary transactional-email permissions. If IP allowlisting is required, route requests through a server with a fixed outgoing IP. SMTP IP blocking is a separate setting. See [Supabase's IP guidance](https://supabase.com/kb/troubleshooting/why-supabase-edge-functions-cannot-provide-static-egress-ips-for-whitelisting) and [Brevo's settings](https://help.brevo.com/hc/en-us/articles/5740111683858-Authorize-and-block-IP-addresses-for-API-and-SMTP-security).
+
 ## 3. Configure account confirmation and recovery URLs
 
 In Development → Authentication → URL Configuration, use `https://nickhijden.github.io/homeboard/dev/` as the Site URL. Allow that URL and its invitation/activation query variants (for example `https://nickhijden.github.io/homeboard/dev/**`). Do not use a Production callback for Development.
@@ -46,6 +48,10 @@ In Development → Authentication → URL Configuration, use `https://nickhijden
 The app supplies `redirect_to` for signup and password recovery. The default Supabase confirmation/recovery templates must retain the confirmation URL. Password recovery opens a new-password form, validates the emailed token with Auth, and preserves existing household data. Supabase authentication email delivery is configured separately from the `household-email` Edge Function; configuring Brevo for invitations alone does not configure Auth SMTP.
 
 Use [Supabase redirect URL guidance](https://supabase.com/docs/guides/auth/redirect-urls) and [password recovery guidance](https://supabase.com/docs/reference/javascript/auth-resetpasswordforemail) for the provider settings. Configure a verified custom SMTP sender for real customer delivery; do not treat a mocked signup test as evidence of delivery.
+
+In Development → Authentication → SMTP settings, enable custom SMTP with host `smtp-relay.brevo.com`, port `587`, the **SMTP login** shown in Brevo, and a **Brevo SMTP key** as the password. Use a verified sender address and sender name `Homeboard`. The SMTP key is separate from `BREVO_API_KEY`. Keep the default Auth confirmation URL in the email template. See [Supabase SMTP setup](https://supabase.com/docs/guides/auth/auth-smtp) and [Brevo SMTP setup](https://help.brevo.com/hc/en-us/articles/7924908994450-Send-transactional-emails-using-Brevo-SMTP).
+
+If a signup-confirmation email is missing, use **Resend confirmation email** in Homeboard with the signup address. A successful request does not prove inbox delivery; review Brevo Transactional → Logs and Supabase Auth logs if it is still missing. Check whether the existing Auth user is unconfirmed or already confirmed before repeating signup. An already-confirmed user should sign in or use Forgot password. Do not manually mark a customer confirmed to bypass delivery testing.
 
 ## 4. Publish and test Development
 

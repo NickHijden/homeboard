@@ -89,6 +89,7 @@ function initializeCustomerFeatures() {
   accountElement('requestRenewalButton').addEventListener('click', requestHouseholdRenewal);
   accountElement('refreshAccessButton').addEventListener('click', refreshHouseholdAccess);
   accountElement('forgotPasswordButton').addEventListener('click', requestPasswordRecovery);
+  accountElement('resendConfirmationButton').addEventListener('click', resendSignupConfirmation);
   accountElement('passwordRecoveryForm').addEventListener('submit', finishPasswordRecovery);
   accountElement('cancelPasswordRecovery').addEventListener('click', cancelPasswordRecovery);
   accountElement('passwordRecoveryDialog').addEventListener('cancel', event => { event.preventDefault(); cancelPasswordRecovery(); });
@@ -317,6 +318,41 @@ async function approveHouseholdRenewal(id) {
     const result=await syncRequest('/functions/v1/household-email',{method:'POST',body:{action:'approve-pass',household_id:id,request_id:createId()}},session.access_token);
     if(current()){await loadPlatformAdminUI(true);if(current())setPlatformAdminStatus(result.message,'connected');}
   }catch(error){if(current())setPlatformAdminStatus(error.message||'The renewal could not be approved.','error');}
+}
+
+async function resendSignupConfirmation() {
+  if (IS_DEMO_HOST || syncState.session || syncState.authenticating || syncState.deleting || customerState.requestingConfirmation) return;
+  const email = els.syncEmail.value.trim();
+  if (!email || !els.syncEmail.checkValidity()) {
+    setSyncStatus('Enter the email address you used to create your account first.', 'error');
+    els.syncEmail.focus();
+    return;
+  }
+  const key = syncState.config.url + ':' + email.toLowerCase();
+  const retries = customerState.confirmationRetries || (customerState.confirmationRetries = {});
+  if (retries[key] && Date.now() < retries[key]) {
+    setSyncStatus('Please wait a minute before requesting another confirmation email.', 'error');
+    return;
+  }
+  const generation = syncState.generation;
+  const current = () => generation === syncState.generation && !syncState.session && els.syncEmail.value.trim() === email;
+  customerState.requestingConfirmation = true;
+  setSyncStatus('Requesting a new account-confirmation email…');
+  try {
+    await syncRequest('/auth/v1/resend?redirect_to=' + encodeURIComponent(signupReturnUrl()), {
+      method: 'POST', body: { type: 'signup', email },
+    });
+    retries[key] = Date.now() + 60000;
+    if (current()) setSyncStatus('If this address has an unconfirmed account, a new confirmation email has been requested. Check your inbox and spam folder. If already confirmed, use Sign in or Forgot password.', 'connected');
+  } catch (error) {
+    if (error.status === 429) retries[key] = Date.now() + 60000;
+    if (current()) setSyncStatus(error.status === 429
+      ? 'Please wait before requesting another confirmation email.'
+      : 'Confirmation email could not be requested. ' + (error.message || 'Please try again later.'), 'error');
+  } finally {
+    customerState.requestingConfirmation = false;
+    renderAuthControls();
+  }
 }
 
 async function requestPasswordRecovery() {

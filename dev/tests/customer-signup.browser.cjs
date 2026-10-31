@@ -38,6 +38,7 @@ async function open(t, options = {}) {
     if (!url.hostname.endsWith('.supabase.co')) return route.abort();
     const record = { url: request.url(), key: request.headers().apikey, body: request.postDataJSON() };
     requests.push(record);
+    if (options.respond && url.pathname === '/auth/v1/resend') return options.respond(route, record);
     let body = [];
     if (url.pathname === '/auth/v1/signup') body = { user: { id: 'synthetic-new-account' } };
     if (url.pathname.endsWith('/is_platform_admin')) body = false;
@@ -52,8 +53,8 @@ async function open(t, options = {}) {
   const errors = [];
   page.on('pageerror', error => errors.push(error.stack || error.message));
   t.after(() => assert.deepEqual(errors, [], 'No browser runtime errors'));
-  await page.goto(base);
-  await page.locator('#settingsButton').click();
+  await page.goto(base + (options.query || ''));
+  if (!await page.locator('#settingsDialog').isVisible()) await page.locator('#settingsButton').click();
   return { page, requests };
 }
 
@@ -137,4 +138,71 @@ test('the production customer flow still uses its own fixed connection', async t
   assert.equal(await page.evaluate(() => syncState.config.url), productionProject);
   assert.equal(await page.locator('#syncConfigFields').isVisible(), false);
   assert.equal(await page.locator('#syncStatus').textContent(), 'Sign in to your Homeboard account.');
+});
+
+test('confirmation resend validates email and preserves the invitation without creating an account', async t => {
+  const { page, requests } = await open(t, { query: '?invite=synthetic-invite&activate=synthetic-pass&household=synthetic-home' });
+  await page.locator('#resendConfirmationButton').click();
+  assert.equal(requests.length, 0);
+  await page.locator('#syncEmail').fill('not-an-email');
+  await page.locator('#resendConfirmationButton').click();
+  assert.equal(requests.length, 0);
+  await page.locator('#syncEmail').fill('resend@example.invalid');
+  await page.locator('#syncPassword').fill('untouched-password');
+  await page.locator('#resendConfirmationButton').click();
+  await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('If this address has an unconfirmed account'));
+  assert.equal(requests.length, 1);
+  const request = requests[0], url = new URL(request.url);
+  assert.equal(url.origin, developmentProject);
+  assert.equal(url.pathname, '/auth/v1/resend');
+  assert.equal(url.searchParams.get('redirect_to'), stagingUrl + '?invite=synthetic-invite&activate=synthetic-pass&household=synthetic-home');
+  assert.deepEqual(request.body, { type: 'signup', email: 'resend@example.invalid' });
+  assert.equal(request.key, developmentKey);
+  assert.equal(await page.locator('#syncPassword').inputValue(), 'untouched-password');
+  assert.equal(await page.locator('#signupAcknowledgement').isChecked(), false);
+  assert.equal(await page.evaluate(() => syncState.session), null);
+  await page.locator('#resendConfirmationButton').click();
+  assert.equal(requests.length, 1);
+  assert.match(await page.locator('#syncStatus').innerText(), /wait a minute/);
+});
+
+test('confirmation resend reports mail-service errors without claiming delivery', async t => {
+  const { page, requests } = await open(t, { respond: route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Error sending confirmation email' }) }) });
+  await page.locator('#syncEmail').fill('resend@example.invalid');
+  await page.locator('#resendConfirmationButton').click();
+  await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('could not be requested'));
+  assert.match(await page.locator('#syncStatus').innerText(), /Error sending confirmation email/);
+  assert.equal(await page.locator('#resendConfirmationButton').isEnabled(), true);
+  assert.equal(await page.evaluate(() => syncState.session), null);
+  assert.equal(requests.length, 1);
+});
+
+test('confirmation resend observes provider rate limits', async t => {
+  const { page, requests } = await open(t, { respond: route => route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ message: 'Too many requests' }) }) });
+  await page.locator('#syncEmail').fill('resend@example.invalid');
+  await page.locator('#resendConfirmationButton').click();
+  await page.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('Please wait before'));
+  await page.locator('#resendConfirmationButton').click();
+  assert.equal(requests.length, 1);
+  assert.match(await page.locator('#syncStatus').innerText(), /wait a minute/);
+});
+
+test('late confirmation-resend replies cannot replace a newer account status', async t => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const { page, requests } = await open(t, { respond: async route => {
+    await pending;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  } });
+  await page.locator('#syncEmail').fill('resend@example.invalid');
+  await page.locator('#resendConfirmationButton').click();
+  await page.waitForFunction(() => customerState.requestingConfirmation);
+  await page.evaluate(() => {
+    syncState.generation += 1;
+    setSyncStatus('Newer account action');
+  });
+  release();
+  await page.waitForFunction(() => !customerState.requestingConfirmation);
+  assert.equal(await page.locator('#syncStatus').innerText(), 'Newer account action');
+  assert.equal(requests.length, 1);
 });

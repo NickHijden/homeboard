@@ -15,7 +15,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261010-01-staging';
+const APP_VERSION = '20261031-01-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -2328,7 +2328,7 @@ async function signIn(createAccount) {
     resetSignupAcknowledgement();
     els.syncPassword.value = '';
     if (!response.access_token) {
-      setSyncStatus('Signup request received. If confirmation is required, check your email before signing in.', 'connected');
+      setSyncStatus('Signup request received. Check your inbox and spam folder for a separate account-confirmation email. Already registered? Use Sign in or Forgot password. If your confirmation email is missing, use Resend confirmation email.', 'connected');
       return;
     }
     setSyncSession(response);
@@ -2362,6 +2362,7 @@ function renderAuthControls() {
     els.syncSignOutButton, els.saveSyncConfigButton, els.signupAcknowledgement].forEach((control) => {
     if (control) control.disabled = syncState.authenticating || syncState.deleting || householdDeleteBusy;
   });
+  accountElement('resendConfirmationButton').disabled = syncState.authenticating || syncState.deleting || householdDeleteBusy || Boolean(customerState.requestingConfirmation);
   renderAccountControls();
 }
 
