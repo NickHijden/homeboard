@@ -15,7 +15,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261101-03-staging';
+const APP_VERSION = '20261101-04-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -259,10 +259,12 @@ function bindEvents() {
 
   els.taskForm.addEventListener('submit', handleTaskSubmit);
   if (els.taskOverviewButton) els.taskOverviewButton.addEventListener('click', () => {
+    accountElement('taskHistoryList').hidden = true;
     renderTaskOverview();
     openDialog(els.taskOverviewDialog);
   });
   if (els.closeTaskOverviewButton) els.closeTaskOverviewButton.addEventListener('click', () => closeDialog(els.taskOverviewDialog));
+  accountElement('taskHistoryButton').addEventListener('click', renderTaskHistory);
   if (els.closeTaskOverviewButtonAlt) els.closeTaskOverviewButtonAlt.addEventListener('click', () => closeDialog(els.taskOverviewDialog));
   if (els.taskOverviewDialog) els.taskOverviewDialog.addEventListener('click', (event) => {
     if (event.target === els.taskOverviewDialog) closeDialog(els.taskOverviewDialog);
@@ -430,6 +432,7 @@ function render() {
   renderAnyDayBoard();
   renderWeek();
   renderCompletedAnyDayBoard();
+  renderMissedHistory();
   renderList('todos', els.todoList, els.todoCount, 'Nothing here yet. Add a small win above.');
   renderList('groceries', els.groceryList, els.groceryCount, 'Your shopping list is clear.');
 }
@@ -656,6 +659,22 @@ function renderTaskOverview() {
     section.appendChild(list);
     els.taskOverviewList.appendChild(section);
   });
+}
+
+function renderTaskHistory() {
+  const list=accountElement('taskHistoryList'); list.hidden=false;
+  list.innerHTML='<p>Last recorded completion. Older fixed-day records may only contain the scheduled date.</p>'+
+    state.data.tasks.filter(task=>task.kind==='task').map(task=>{
+      const last=HomeboardRecurrence.lastCompletion(state.data,task);
+      return '<p><strong>'+escapeHtml(task.title)+'</strong> — '+escapeHtml(last||'Never completed')+'</p>';
+    }).join('');
+}
+
+function renderMissedHistory() {
+  const target=accountElement('missedWeekHistory');
+  const rows=(state.data.missedOccurrences||[]).filter(row=>row.weekStart===dateKey(state.weekStart));
+  target.hidden=!rows.length;
+  target.innerHTML='<h3>Missed this week</h3>'+rows.map(row=>'<p class="missed-task"><strong>Missed</strong> · '+escapeHtml(row.title)+' · '+escapeHtml(row.occurrenceDate)+'</p>').join('');
 }
 
 function getDaySetting(index) {
@@ -1210,6 +1229,10 @@ function rollOverdueRecurringTasks() {
   // Completion history survives stale task edits and is authoritative before
   // rollover decides whether an old occurrence is still unfinished.
   let changed = reconcileAnyDayCompletions(state.data);
+  const missed=HomeboardRecurrence.missedHistory(state.data,currentWeekStart);
+  if(JSON.stringify(missed)!==JSON.stringify(state.data.missedOccurrences||[])){
+    state.data.missedOccurrences=missed;changed=true;
+  }
 
   if (typeof window !== 'undefined' && window.HomeboardRecurrence && typeof window.HomeboardRecurrence.rollOverdueTask === 'function') {
     state.data.tasks.forEach((task) => {
@@ -1316,7 +1339,7 @@ function sortOccurrences(left, right) {
 function completeTask(taskId, occurrenceDate, title) {
   if (!canEditPlanner()) return;
   const key = completionKey(taskId, occurrenceDate);
-  state.data.completions[key] = true;
+  state.data.completions[key] = {completedDate:dateKey(new Date()),completedAt:nowIso()};
   state.lastUndo = () => {
     delete state.data.completions[key];
     persist();
@@ -3437,6 +3460,7 @@ function mergePlannerData(local, remote) {
     groceries: mergeItems(local.groceries, remote.groceries, deleted.groceries),
     completions: Object.assign({}, remote.completions || {}, local.completions || {}),
     anyDayCompletions: mergeItems(local.anyDayCompletions || [], remote.anyDayCompletions || [], deleted.anyDayCompletions),
+    missedOccurrences: mergeItems(local.missedOccurrences || [], remote.missedOccurrences || [], {}),
     daySettings: mergeDaySettings(local.daySettings, remote.daySettings),
     profile: HomeboardPlanner.newerProfile(local.profile, remote.profile),
     meta: Object.assign({}, remote.meta || {}, local.meta || {}, { demo: false, deleted }),
@@ -3561,6 +3585,7 @@ function normalizePlannerData(stored) {
     groceries: stored.groceries.map(normalizeListItem),
     completions: stored.completions && typeof stored.completions === 'object' ? stored.completions : {},
     anyDayCompletions: Array.isArray(stored.anyDayCompletions) ? stored.anyDayCompletions.map(normalizeAnyDayCompletion) : [],
+    missedOccurrences: Array.isArray(stored.missedOccurrences) ? stored.missedOccurrences.filter(row=>row && row.id && row.taskId && row.weekStart && row.occurrenceDate) : [],
     daySettings: normalizeDaySettings(stored.daySettings),
     profile: stored.profile && typeof stored.profile === 'object' ? stored.profile : {},
     meta: stored.meta && typeof stored.meta === 'object' ? stored.meta : {},

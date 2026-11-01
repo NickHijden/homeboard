@@ -194,7 +194,54 @@
     return changed;
   }
 
+  function missedHistory(data, currentWeekStart) {
+    const boundary = dateKey(startOfWeek(currentWeekStart));
+    const rows = new Map();
+    (data.missedOccurrences || []).forEach(row => { if (row && row.id) rows.set(row.id, row); });
+    (data.tasks || []).forEach(original => {
+      if (original.kind !== 'task' || !isRecurringTask(original)) return;
+      const task = Object.assign({}, original);
+      if (task.anyDay) reconcileAnyDayTask(task, data.anyDayCompletions);
+      const candidates = [task.anyDay ? task.nextAnyDayDate || task.anyDayDate : task.date,
+        task.anyDay ? original.lastMissedAnyDayDate : original.lastMissedDate];
+      candidates.forEach(value => {
+        let due = parseCompletionDate(value);
+        let guard = 0;
+        while (due && dateKey(due) < boundary && guard++ < 520) {
+          const key = dateKey(due);
+          const week = startOfWeek(due), end = dateKey(addDays(week, 6));
+          const done = task.anyDay
+            ? (data.anyDayCompletions || []).some(entry => entry.taskId === task.id
+              && (entry.occurrenceDate || entry.completedDate) === key && entry.completedDate <= end)
+            : Boolean((data.completions || {})[task.id + '::' + key])
+              && (!(data.completions[task.id + '::' + key]).completedDate || data.completions[task.id + '::' + key].completedDate <= end);
+          if (done) { due = addRecurringDate(due, task.recurrence); continue; }
+          const id = task.id + '::' + key;
+          if (!rows.has(id)) rows.set(id, {id, taskId:task.id, title:task.title, assignee:task.assignee,
+            occurrenceDate:key, weekStart:dateKey(week), updatedAt:end+'T23:59:59.000Z'});
+          // An unfinished task is carried weekly, irrespective of its interval.
+          due = addDays(due, 7);
+        }
+      });
+    });
+    return Array.from(rows.values());
+  }
+
+  function lastCompletion(data, task) {
+    const dates = [];
+    if (task.lastCompletedOn) dates.push(task.lastCompletedOn);
+    (data.anyDayCompletions || []).forEach(row => { if (row.taskId === task.id && row.completedDate) dates.push(row.completedDate); });
+    Object.keys(data.completions || {}).forEach(key => {
+      if (key.indexOf(task.id+'::') !== 0 || !data.completions[key]) return;
+      const value = data.completions[key];
+      dates.push(value.completedDate || key.slice(task.id.length+2));
+    });
+    return dates.filter(value => Boolean(parseCompletionDate(value))).sort().pop() || '';
+  }
+
   return {
+    missedHistory,
+    lastCompletion,
     addRecurringDate,
     getRecurringAnchorDate,
     isRecurringTask,

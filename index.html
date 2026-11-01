@@ -7,7 +7,7 @@
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="assets/homeboard-icon-180.png" />
-    <link rel="stylesheet" href="styles.css?v=20261101-03" />
+    <link rel="stylesheet" href="styles.css?v=20261101-04" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -23,7 +23,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261101-03</p>
+            <p class="app-version">Version 20261101-04</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -57,6 +57,7 @@
 
           <div class="week-summary" id="weekSummary" aria-live="polite"></div>
           <div id="weekGrid" aria-live="polite"></div>
+          <section id="missedWeekHistory" class="completed-any-day-board" hidden aria-label="Missed tasks in this week"></section>
           <section class="completed-any-day-board" id="completedAnyDayBoard" aria-label="Completed flexible tasks"></section>
         </section>
 
@@ -255,6 +256,8 @@
           <button class="close-button" id="closeTaskOverviewButton" type="button" aria-label="Close">×</button>
         </div>
         <p class="settings-copy">Recurring household tasks at a glance. Click any row to edit it.</p>
+        <button type="button" class="secondary-button" id="taskHistoryButton">Task history</button>
+        <div id="taskHistoryList" hidden></div>
         <div class="task-overview-summary" id="taskOverviewSummary"></div>
         <div class="task-overview-list" id="taskOverviewList"></div>
         <div class="dialog-actions">
@@ -505,9 +508,9 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261101-03" defer></script>
-    <script src="planner-features.js?v=20261101-03" defer></script>
-    <script src="customer.js?v=20261101-03" defer></script>
-    <script src="app.js?v=20261101-03" defer></script>
+    <script src="recurrence.js?v=20261101-04" defer></script>
+    <script src="planner-features.js?v=20261101-04" defer></script>
+    <script src="customer.js?v=20261101-04" defer></script>
+    <script src="app.js?v=20261101-04" defer></script>
   </body>
 </html>

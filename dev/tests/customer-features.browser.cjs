@@ -30,7 +30,10 @@ async function open(t,options={}){
       if(r.method==='GET')data=[{household_id:'home-a',data:structuredClone(cloud.data)}];
       else{if(cloud.delayWrites)await new Promise(resolve=>setTimeout(resolve,cloud.delayWrites));if(cloud.failWrite)return route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic save failed"}'});cloud.data=structuredClone(r.body.data);}
     }
-    if(r.path==='/functions/v1/household-email')data={message:'Email accepted for delivery.',sent:1};
+    if(r.path==='/functions/v1/household-email'){
+      if(cloud.emailError)return route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:cloud.emailError})});
+      data={message:'Email accepted for delivery.',sent:cloud.noRecipients?0:1};
+    }
     return route.fulfill({contentType:'application/json',body:JSON.stringify(data)});
   });
   await context.addInitScript(({project,loggedIn})=>{
@@ -51,6 +54,19 @@ test('signed-out personal board is gated, demo is isolated and makes no cloud re
   assert.equal(await page.locator('#accountGate').isVisible(),false);assert.equal(await page.evaluate(()=>state.data.tasks.length),2);
   assert.equal(cloud.requests.length,0);assert.match(await page.evaluate(()=>STORAGE_NAMESPACE),/staging-demo/);
   if(process.env.HOMEBOARD_SCREENSHOT_DIR){fs.mkdirSync(process.env.HOMEBOARD_SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.HOMEBOARD_SCREENSHOT_DIR,'demo-board.png'),fullPage:true});}
+});
+test('missed tasks remain red in the original week and task history survives reload',async t=>{
+ const {page}=await open(t);
+ await page.evaluate(()=>{
+  state.data.tasks.push({id:'history-test',title:'History chore',kind:'task',anyDay:true,anyDayDate:'2026-09-28',nextAnyDayDate:'2026-09-28',recurrence:'weekly',assignee:'both',updatedAt:nowIso()});
+  render();completeAnyDayTask('history-test','History chore');state.weekStart=parseDate('2026-09-28');render();
+ });
+ assert.match(await page.locator('#missedWeekHistory').innerText(),/Missed.*History chore/);
+ await page.locator('#taskOverviewButton').click();await page.locator('#taskHistoryButton').click();
+ assert.match(await page.locator('#taskHistoryList').innerText(),/History chore.*2026-10-09/);
+ await page.reload();await page.waitForFunction(()=>householdState.loaded&&!syncState.busy);
+ await page.evaluate(()=>{state.weekStart=parseDate('2026-09-28');render();});
+ assert.match(await page.locator('#missedWeekHistory').innerText(),/History chore/);
 });
 test('names and Together assignments appear once and hostile names remain plain text',async t=>{
   const data=blank();data.tasks=[{id:'shared-task',title:'One shared chore',kind:'task',assignee:'both',anyDay:true,anyDayDate:'2026-10-05',nextAnyDayDate:'2026-10-05',recurrence:'weekly',recurrenceStartDate:'2026-10-05',updatedAt:'2026-10-08'}];
@@ -124,6 +140,44 @@ test('notification is sent only after successful cloud sync',async t=>{
   assert.equal(cloud.requests.some(r=>r.path==='/functions/v1/household-email'),false);
   cloud.failWrite=false;await page.evaluate(()=>notifyPlannerChange('change',true));
   assert.equal(cloud.requests.filter(r=>r.path==='/functions/v1/household-email').length,1);
+});
+test('Save changes sends the checked notification through the actual event form',async t=>{
+  const {page,cloud}=await open(t);
+  await page.evaluate(()=>{
+    const task={id:'form-email',title:'Test event',kind:'event',date:'2026-10-09',startTime:'11:45',endTime:'',assignee:'both',recurrence:'none',reminder:'day-before',updatedAt:nowIso()};
+    state.data.tasks.push(task);persist({sync:false});openEventDialog({task});
+  });
+  await page.locator('#taskTitle').fill('Changed test event');
+  await page.locator('#eventStart').fill('12:30');
+  await page.locator('#notifyHousehold').check();
+  await page.locator('#saveEventButton').click();
+  await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('Email accepted'));
+  const requests=cloud.requests.filter(r=>r.path==='/functions/v1/household-email');
+  assert.equal(requests.length,1);assert.equal(requests[0].body.entry_title,'Changed test event');
+  assert.deepEqual(requests[0].body.entry_changes,[
+    {field:'title',before:'Test event',after:'Changed test event'},
+    {field:'startTime',before:'11:45',after:'12:30'}
+  ]);
+});
+test('notification failures and missing recipients stay visible with an explanation',async t=>{
+  const {page,cloud}=await open(t,{cloud:{emailError:'Too many email requests. Please try again later'}});
+  await page.evaluate(()=>notifyPlannerChange('missing',true));
+  assert.match(await page.locator('#notificationMessage').innerText(),/Too many email requests/);
+  cloud.emailError=null;cloud.noRecipients=true;
+  await page.evaluate(()=>notifyPlannerChange('missing',true));
+  assert.match(await page.locator('#notificationMessage').innerText(),/no other verified household members/);
+  assert.equal(await page.locator('#notificationBanner').isVisible(),true);
+  await page.locator('#dismissNotification').click();
+  assert.equal(await page.locator('#notificationBanner').isVisible(),false);
+});
+test('notification captures the opted-in task title and kind without its notes',async t=>{
+  const {page,cloud}=await open(t);
+  await page.evaluate(async()=>{
+    state.data.tasks.push({id:'summary-task',title:'Water plants',kind:'task',notes:'Do not email these notes',updatedAt:nowIso()});
+    persist({sync:false});await notifyPlannerChange('summary-task',true);
+  });
+  const sent=cloud.requests.find(r=>r.path==='/functions/v1/household-email');
+  assert.ok(sent);assert.match(JSON.stringify(sent),/Water plants/);assert.doesNotMatch(JSON.stringify(sent),/Do not email these notes/);
 });
 test('a notification waits for a background save already in progress',async t=>{
   const {page,cloud}=await open(t,{cloud:{delayWrites:200}});
