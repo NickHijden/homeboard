@@ -68,6 +68,16 @@ test('missed tasks remain red in the original week and task history survives rel
  await page.evaluate(()=>{state.weekStart=parseDate('2026-09-28');render();});
  assert.match(await page.locator('#missedWeekHistory').innerText(),/History chore/);
 });
+test('task history includes only flexible recurring tasks with relative next dates',async t=>{
+ const {page}=await open(t);
+ const labels=await page.evaluate(()=>{
+  const base={kind:'task',title:'Flexible',anyDay:true,recurrence:'weekly',nextAnyDayDate:'2026-10-12'};
+  state.data.tasks=[Object.assign({id:'a'},base),Object.assign({},base,{id:'b',title:'Fixed',anyDay:false}),Object.assign({},base,{id:'c',title:'Once',recurrence:'none'})];
+  renderTaskHistory();return ['2026-10-05','2026-10-12','2026-10-26','2026-12-14'].map(d=>taskHistoryDueLabel(d,new Date(2026,9,9)));
+ });
+ assert.deepEqual(labels,['deze week','volgende week','over 3 weken','over 2 maanden en 1 week']);
+ const text=await page.locator('#taskHistoryList').textContent();assert.match(text,/Flexible/);assert.doesNotMatch(text,/Fixed|Once/);assert.match(text,/volgende week/);
+});
 test('names and Together assignments appear once and hostile names remain plain text',async t=>{
   const data=blank();data.tasks=[{id:'shared-task',title:'One shared chore',kind:'task',assignee:'both',anyDay:true,anyDayDate:'2026-10-05',nextAnyDayDate:'2026-10-05',recurrence:'weekly',recurrenceStartDate:'2026-10-05',updatedAt:'2026-10-08'}];
   const {page}=await open(t,{cloud:{data}});

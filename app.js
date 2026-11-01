@@ -15,7 +15,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261101-04';
+const APP_VERSION = '20261101-05';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -663,11 +663,33 @@ function renderTaskOverview() {
 
 function renderTaskHistory() {
   const list=accountElement('taskHistoryList'); list.hidden=false;
-  list.innerHTML='<p>Last recorded completion. Older fixed-day records may only contain the scheduled date.</p>'+
-    state.data.tasks.filter(task=>task.kind==='task').map(task=>{
+  const tasks=state.data.tasks.filter(task=>task.kind==='task' && task.anyDay && isRecurringTask(task));
+  list.innerHTML='<p>Terugkerende taken zonder vaste dag.</p>'+(tasks.length?
+    tasks.map(task=>{
       const last=HomeboardRecurrence.lastCompletion(state.data,task);
-      return '<p><strong>'+escapeHtml(task.title)+'</strong> — '+escapeHtml(last||'Never completed')+'</p>';
-    }).join('');
+      const next=taskHistoryDueLabel(task.nextAnyDayDate||task.anyDayDate);
+      return '<p><strong>'+escapeHtml(task.title)+'</strong> — Laatst uitgevoerd: '+escapeHtml(last||'Nog niet uitgevoerd')+
+        '<br>Opnieuw uitvoeren: '+escapeHtml(next)+'</p>';
+    }).join(''):'<p>Geen terugkerende taken zonder vaste dag.</p>');
+}
+
+function taskHistoryDueLabel(value, today = new Date()) {
+  const due=HomeboardPlanner.parseDate(value);
+  if(!due)return 'Datum nog niet ingesteld';
+  const start=startOfWeek(today), target=startOfWeek(due);
+  const dayNumber=date=>Date.UTC(date.getFullYear(),date.getMonth(),date.getDate())/86400000;
+  const weeks=Math.round((dayNumber(target)-dayNumber(start))/7);
+  if(weeks<=0)return 'deze week';
+  if(weeks===1)return 'volgende week';
+  if(weeks<8)return 'over '+weeks+' weken';
+  let months=(target.getFullYear()-start.getFullYear())*12+target.getMonth()-start.getMonth();
+  const shifted=count=>{
+    const date=new Date(start.getFullYear(),start.getMonth()+count,1);
+    date.setDate(Math.min(start.getDate(),new Date(date.getFullYear(),date.getMonth()+1,0).getDate()));return date;
+  };
+  if(shifted(months)>target)months--;
+  const remainingWeeks=Math.round((dayNumber(target)-dayNumber(shifted(months)))/7);
+  return 'over '+months+(months===1?' maand':' maanden')+(remainingWeeks?' en '+remainingWeeks+(remainingWeeks===1?' week':' weken'):'');
 }
 
 function renderMissedHistory() {
