@@ -7,7 +7,7 @@
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="assets/homeboard-icon-180.png" />
-    <link rel="stylesheet" href="styles.css?v=20261101-02-staging" />
+    <link rel="stylesheet" href="styles.css?v=20261101-03-staging" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -23,7 +23,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261101-02-staging</p>
+            <p class="app-version">Version 20261101-03-staging</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -186,7 +186,7 @@
         <label class="field-label" for="taskCompletedOn">Last completed on <span class="optional">optional · sets the next due date</span></label>
         <input id="taskCompletedOn" class="large-input" type="date" />
         <label class="any-day-toggle"><input id="notifyHousehold" type="checkbox" /> Email the other members about this change</label>
-        <p class="field-hint">Shares the title and whether this item was added or updated with the other verified household members. Notes and descriptions are not emailed.</p>
+        <p class="field-hint">Shares the title and the old and new values of changed dates, times, assignment and repeat settings with the other verified household members. Notes and descriptions are not emailed. Sent when you save changes.</p>
         <label class="field-label" for="taskReminder">Email reminder <span class="optional">when notifications are connected</span></label>
         <select class="large-input" id="taskReminder" name="reminder">
           <option value="day-before">The day before</option>
@@ -505,9 +505,9 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261101-02-staging" defer></script>
-    <script src="planner-features.js?v=20261101-02-staging" defer></script>
-    <script src="customer.js?v=20261101-02-staging" defer></script>
-    <script src="app.js?v=20261101-02-staging" defer></script>
+    <script src="recurrence.js?v=20261101-03-staging" defer></script>
+    <script src="planner-features.js?v=20261101-03-staging" defer></script>
+    <script src="customer.js?v=20261101-03-staging" defer></script>
+    <script src="app.js?v=20261101-03-staging" defer></script>
   </body>
 </html>

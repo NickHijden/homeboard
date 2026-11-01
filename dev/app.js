@@ -15,7 +15,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261101-02-staging';
+const APP_VERSION = '20261101-03-staging';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -1413,6 +1413,7 @@ function handleTaskSubmit(event) {
   }
   const volunteering = isVolunteeringTask(title);
   const editingTask = editingTaskId ? state.data.tasks.find((task) => task.id === editingTaskId) : null;
+  const emailBefore = editingTask ? plannerEmailSnapshot(editingTask) : null;
   const startWeekValue = recurrence !== 'none' ? String(els.taskStartWeek && els.taskStartWeek.value || '').trim() : '';
   const startWeekDate = startWeekValue ? parseDate(startWeekValue) : null;
   if (!title || (!anyDay && !date)) return;
@@ -1499,7 +1500,7 @@ function handleTaskSubmit(event) {
   if (completedOn && !applyRecordedCompletion(savedTask, completedOn)) return;
   const notify = accountElement('notifyHousehold').checked;
   persist();
-  if (notify) notifyPlannerChange(savedTask.id, Boolean(editingTask));
+  if (notify) notifyPlannerChange(savedTask.id, Boolean(editingTask), emailBefore);
   closeDialog(els.eventDialog);
   if (effectiveDate) state.weekStart = startOfWeek(parseDate(effectiveDate));
   render();

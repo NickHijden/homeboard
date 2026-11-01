@@ -287,10 +287,27 @@ function showNotificationResult(message) {
   accountElement('notificationBanner').hidden=false;
   showToast(message);
 }
-async function notifyPlannerChange(taskId, updated) {
+function plannerEmailSnapshot(task) {
+  const repeat={none:'Does not repeat',weekly:'Every week',biweekly:'Every 2 weeks',fourweekly:'Every 4 weeks',monthly:'Every calendar month',quarterly:'Every 3 months'};
+  return {
+    title:String(task.title||'').slice(0,160),
+    date:task.anyDay?'No fixed day':String(task.date||'Not set'),
+    startTime:String(task.startTime||'Not set'),endTime:String(task.endTime||'Not set'),
+    assignee:HomeboardPlanner.label(task.assignee||'both',state.data.profile),
+    recurrence:repeat[task.recurrence]||'Does not repeat',
+    kind:({task:'Task',event:'Event',expiry:'Expiry reminder'})[task.kind]||'Task',
+    rotate:task.rotate?'Yes':'No'
+  };
+}
+async function notifyPlannerChange(taskId, updated, before) {
   const scope=activePlannerScope; const selected=getSelectedHousehold();
   const entry=state.data.tasks.find(task=>task.id===taskId);
   const summary=entry?{entry_title:String(entry.title||'').slice(0,160),entry_kind:entry.kind}:{};
+  if(entry){
+    const after=plannerEmailSnapshot(entry);
+    summary.entry_changes=Object.keys(after).filter(key=>!updated || (before && before[key]!==after[key]))
+      .map(field=>({field,before:before?before[field]:'',after:after[field]}));
+  }
   const current=customerContext();
   if(!selected || !syncState.session || IS_DEMO_HOST){showNotificationResult('Saved. No email sent: sign in to a household first.');return;}
   showNotificationResult('Saved on this device. Syncing before requesting the email…');
