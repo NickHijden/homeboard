@@ -1,7 +1,8 @@
 // Keep the production keys stable. The public staging path has a separate
 // namespace because GitHub Pages paths share the same browser origin.
 const IS_STAGING_HOST = isStagingHost();
-const STORAGE_NAMESPACE = IS_STAGING_HOST ? '-staging' : '';
+const IS_DEMO_HOST = new URLSearchParams(window.location.search).get('demo') === '1';
+const STORAGE_NAMESPACE = (IS_STAGING_HOST ? '-staging' : '') + (IS_DEMO_HOST ? '-demo' : '');
 const STORAGE_KEY = `homeboard-household-planner-v1${STORAGE_NAMESPACE}`;
 const BACKUP_STORAGE_KEY = `homeboard-household-planner-last-known-good-v1${STORAGE_NAMESPACE}`;
 const IDB_NAME = `homeboard-household-planner-storage${STORAGE_NAMESPACE}`;
@@ -10,12 +11,23 @@ const SYNC_CONFIG_KEY = `homeboard-sync-config-v1${STORAGE_NAMESPACE}`;
 const SYNC_SESSION_KEY = `homeboard-sync-session-v1${STORAGE_NAMESPACE}`;
 const SYNC_EMAIL_KEY = `homeboard-sync-email-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_SELECTION_KEY = `homeboard-household-selection-v1${STORAGE_NAMESPACE}`;
+const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
+const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
+let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261006-02';
+const APP_VERSION = '20261101-03';
+// Bump independently of the app when the acknowledged wording changes.
+const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
 const IS_DEVELOPMENT_HOST = isDevelopmentHost();
 const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vnprRkQ5uPS2yH1D9fJu1w_-V0jEd0z';
 const CENTRAL_PRODUCTION_CONFIG = { url: PRODUCTION_SUPABASE_URL, key: PRODUCTION_SUPABASE_PUBLISHABLE_KEY };
+// The public test site follows the customer flow, with its own fixed backend.
+const CENTRAL_STAGING_CONFIG = {
+  url: 'https://axfxuqihsscjekicbgkk.supabase.co',
+  key: 'sb_publishable_AJsvciGTAoJU62s-KPhUjQ_-sN4b7vB',
+};
+const MANUAL_SYNC_CONFIG_ALLOWED = IS_DEVELOPMENT_HOST && !IS_STAGING_HOST;
 const HOUSEHOLD_UI_ENABLED = IS_DEVELOPMENT_HOST || Boolean(CENTRAL_PRODUCTION_CONFIG.url && CENTRAL_PRODUCTION_CONFIG.key);
 const LEGACY_STORAGE_KEYS = IS_STAGING_HOST ? [
   'homeboard-household-planner-v2-staging',
@@ -60,13 +72,6 @@ let editingTaskId = null;
 let editingOccurrenceDate = null;
 let editingDayIndex = null;
 
-const state = {
-  data: loadData(),
-  weekStart: startOfWeek(new Date()),
-  lastUndo: null,
-  toastTimer: null,
-};
-
 const syncState = {
   config: loadSyncConfig(),
   session: loadSyncSession(),
@@ -74,7 +79,14 @@ const syncState = {
   queueTimer: null,
   busy: false,
   pending: false,
+  authenticating: false,
+  generation: 0,
+  deleting: false,
 };
+let accountBusy = false;
+let deletionPreview = null;
+let householdDeletion = null;
+let householdDeleteBusy = false;
 
 const householdState = {
   households: [],
@@ -86,6 +98,18 @@ const householdState = {
   loading: false,
 };
 let householdLoadPromise = null;
+let householdLoadGeneration = -1;
+let invitationState = null;
+let activePlannerScope = plannerScopeFor(syncState.session, householdState.selectedHouseholdId);
+let plannerGeneration = 0;
+let plannerRevision = 0;
+let plannerRecoveryPromise = Promise.resolve();
+const state = {
+  data: loadData(),
+  weekStart: startOfWeek(new Date()),
+  lastUndo: null,
+  toastTimer: null,
+};
 const platformAdminState = {
   isAdmin: false,
   households: [],
@@ -165,6 +189,8 @@ const els = {
   saveSyncConfigButton: document.querySelector('#saveSyncConfigButton'),
   syncSignInButton: document.querySelector('#syncSignInButton'),
   syncSignUpButton: document.querySelector('#syncSignUpButton'),
+  signupAcknowledgement: document.querySelector('#signupAcknowledgement'),
+  signupAcknowledgementPanel: document.querySelector('#signupAcknowledgementPanel'),
   syncNowButton: document.querySelector('#syncNowButton'),
   syncSignOutButton: document.querySelector('#syncSignOutButton'),
   syncStatus: document.querySelector('#syncStatus'),
@@ -218,8 +244,10 @@ registerServiceWorker();
 if (loadedDataFromStorage) mirrorDataToIndexedDB(state.data);
 recoverFromIndexedDB();
 initializeSync();
+initializeCustomerFeatures();
 
 function bindEvents() {
+  bindAccountDataEvents();
   if (!els.addEventButton || !els.eventDialog || !els.taskForm) return;
   els.addEventButton.addEventListener('click', () => openEventDialog());
   els.previousWeekButton.addEventListener('click', () => moveWeek(-1));
@@ -308,8 +336,22 @@ function bindEvents() {
   if (els.saveSyncConfigButton) els.saveSyncConfigButton.addEventListener('click', saveSyncConfig);
   if (els.syncSignInButton) els.syncSignInButton.addEventListener('click', () => signIn(false));
   if (els.syncSignUpButton) els.syncSignUpButton.addEventListener('click', () => signIn(true));
+  if (els.syncEmail) els.syncEmail.addEventListener('input', resetSignupAcknowledgement);
+  if (els.signupAcknowledgement) els.signupAcknowledgement.addEventListener('change', () => {
+    els.signupAcknowledgement.removeAttribute('aria-invalid');
+  });
   if (els.syncNowButton) els.syncNowButton.addEventListener('click', () => syncNow(true));
-  if (els.syncSignOutButton) els.syncSignOutButton.addEventListener('click', signOut);
+  if (els.syncSignOutButton) els.syncSignOutButton.addEventListener('click', logoutFromUI);
+  accountElement('deleteHouseholdButton').addEventListener('click', reviewHouseholdDeletion);
+  accountElement('deleteHouseholdForm').addEventListener('submit', deleteHouseholdFromUI);
+  accountElement('deleteHouseholdPhrase').addEventListener('input', renderHouseholdDeletionControls);
+  ['closeDeleteHouseholdButton', 'cancelDeleteHouseholdButton'].forEach(id => {
+    accountElement(id).addEventListener('click', cancelHouseholdDeletion);
+  });
+  accountElement('deleteHouseholdDialog').addEventListener('cancel', event => {
+    event.preventDefault();
+    cancelHouseholdDeletion();
+  });
   if (els.householdButton) els.householdButton.addEventListener('click', () => {
     openDialog(els.settingsDialog);
     renderHouseholdUI();
@@ -319,9 +361,11 @@ function bindEvents() {
   if (els.householdSelect) els.householdSelect.addEventListener('change', () => {
     householdState.selectedHouseholdId = els.householdSelect.value || '';
     saveHouseholdSelection();
+    activatePlannerScope(plannerScopeFor(syncState.session, householdState.selectedHouseholdId));
     loadHouseholdMembers();
     loadHouseholdInvitations();
     renderHouseholdUI();
+    syncNow(false);
   });
   if (els.createHouseholdButton) els.createHouseholdButton.addEventListener('click', createHouseholdFromUI);
   if (els.renameHouseholdButton) els.renameHouseholdButton.addEventListener('click', renameHouseholdFromUI);
@@ -373,15 +417,16 @@ function initializeEnvironment() {
       ? 'This public staging site is isolated from the production Supabase project.'
       : 'This preview is isolated from the production Supabase project.';
   }
-  if (els.syncConfigFields) els.syncConfigFields.hidden = !IS_DEVELOPMENT_HOST;
-  if (els.syncCopy && IS_DEVELOPMENT_HOST) els.syncCopy.textContent = 'Use the Homeboard Development project and your test account here. Customers never need to enter a project URL or API key.';
+  if (els.syncConfigFields) els.syncConfigFields.hidden = !MANUAL_SYNC_CONFIG_ALLOWED;
+  if (els.syncCopy && MANUAL_SYNC_CONFIG_ALLOWED) els.syncCopy.textContent = 'Use the Homeboard Development project and your test account here. Customers never need to enter a project URL or API key.';
   if (els.householdButton) els.householdButton.hidden = !HOUSEHOLD_UI_ENABLED;
   if (els.householdSection) els.householdSection.hidden = !HOUSEHOLD_UI_ENABLED;
 }
 
 function render() {
+  renderCustomerFeatures();
   rollOverdueRecurringTasks();
-renderWeekHeader();
+  renderWeekHeader();
   renderAnyDayBoard();
   renderWeek();
   renderCompletedAnyDayBoard();
@@ -398,10 +443,7 @@ function renderAnyDayBoard() {
     return;
   }
 
-  const rows = [
-    { key: 'me', label: 'Nick', tasks: openTasks.filter((task) => task.assignee === 'me' || task.assignee === 'both') },
-    { key: 'partner', label: 'Stephany', tasks: openTasks.filter((task) => task.assignee === 'partner' || task.assignee === 'both') },
-  ];
+  const rows = plannerPeople(true).map(person => ({ key: person.id, label: person.name, tasks: openTasks.filter(task => effectiveAssignee(task) === person.id) })).filter(row => row.tasks.length);
   els.anyDayBoard.hidden = false;
   els.anyDayBoard.innerHTML = `
     <div class="any-day-heading">
@@ -414,7 +456,7 @@ function renderAnyDayBoard() {
   rows.forEach((row) => {
     const rowElement = document.createElement('div');
     rowElement.className = `any-day-row any-day-row-${row.key}`;
-    rowElement.innerHTML = `<span class="any-day-label">${row.label}</span><div class="any-day-items"></div>`;
+    rowElement.innerHTML = `<span class="any-day-label">${escapeHtml(row.label)}</span><div class="any-day-items"></div>`;
     const itemsElement = rowElement.querySelector('.any-day-items');
     row.tasks.forEach((task) => {
       const item = createTaskElement({
@@ -433,17 +475,14 @@ function renderCompletedAnyDayBoard() {
   if (!els.completedAnyDayBoard) return;
   const days = Array.from({ length: 7 }, (_, index) => addDays(state.weekStart, index));
   const history = Array.isArray(state.data.anyDayCompletions) ? state.data.anyDayCompletions : [];
-  const rows = [
-    { key: 'me', label: 'Nick' },
-    { key: 'partner', label: 'Stephany' },
-  ];
+  const rows = plannerPeople(true).map(person => ({ key: person.id, label: person.name }));
   els.completedAnyDayBoard.hidden = false;
   els.completedAnyDayBoard.innerHTML = rows.map((row) => `
     <div class="completed-any-day-row completed-any-day-row-${row.key}">
-      <span class="completed-any-day-label">${row.label}</span>
+      <span class="completed-any-day-label">${escapeHtml(row.label)}</span>
       ${days.map((day) => {
         const dayHistory = history.filter((entry) => entry.completedDate === dateKey(day)
-          && (entry.assignee === row.key || entry.assignee === 'both'));
+          && entry.assignee === row.key);
         return `<div class="completed-any-day-cell">${dayHistory.map((entry) => `
           <span class="completed-any-day-item" title="Completed ${escapeAttribute(entry.title)}">
             <span class="completed-any-day-check" aria-hidden="true">✓</span>${escapeHtml(entry.title)}
@@ -463,6 +502,20 @@ function isAnyDayTaskOpen(task) {
 
   const anchor = parseDate(task.nextAnyDayDate) || parseDate(task.anyDayDate) || viewingWeek;
   return Array.from({ length: 7 }, (_, index) => matchesRecurringDate(anchor, addDays(viewingWeek, index), task.recurrence)).some(Boolean);
+}
+
+function reconcileAnyDayCompletions(data) {
+  const deleted = data.meta && data.meta.deleted && data.meta.deleted.anyDayCompletions;
+  const history = mergeItems(data.anyDayCompletions || [], [], deleted);
+  let changed = history.length !== (data.anyDayCompletions || []).length;
+  data.anyDayCompletions = history;
+  const recurrence = window.HomeboardRecurrence;
+  if (recurrence && typeof recurrence.reconcileAnyDayTask === 'function') {
+    data.tasks.forEach((task) => {
+      if (recurrence.reconcileAnyDayTask(task, history)) changed = true;
+    });
+  }
+  return changed;
 }
 
 function renderWeekHeader() {
@@ -517,11 +570,11 @@ function getTaskKindLabel(task) {
 }
 
 function getTaskAssigneeLabel(task) {
-  return task.assignee === 'me' ? 'Nick' : task.assignee === 'partner' ? 'Stephany' : 'Both';
+  return HomeboardPlanner.label(effectiveAssignee(task), state.data.profile);
 }
 
 function getTaskOverviewRecurrenceRank(task) {
-  const order = { weekly: 0, biweekly: 1, monthly: 2, quarterly: 3, none: 4 };
+  const order = { weekly: 0, biweekly: 1, fourweekly: 2, monthly: 3, quarterly: 4, none: 5 };
   return Object.prototype.hasOwnProperty.call(order, task.recurrence) ? order[task.recurrence] : order.none;
 }
 
@@ -567,14 +620,11 @@ function renderTaskOverview() {
     els.taskOverviewList.innerHTML = '<p class="task-overview-empty">No tasks saved yet.</p>';
     return;
   }
-  const columns = [
-    { key: 'me', label: 'Nick', tasks: getTaskOverviewRows(tasks.filter((task) => task.assignee === 'me' || task.assignee === 'both')) },
-    { key: 'partner', label: 'Stephany', tasks: getTaskOverviewRows(tasks.filter((task) => task.assignee === 'partner' || task.assignee === 'both')) },
-  ];
+  const columns = plannerPeople(true).map(person => ({ key: person.id, label: person.name, tasks: getTaskOverviewRows(tasks.filter(task => effectiveAssignee(task) === person.id)) }));
   columns.forEach((column) => {
     const section = document.createElement('section');
     section.className = 'task-overview-column';
-    section.innerHTML = `<div class="task-overview-column-heading"><h3>${column.label}</h3><span>${column.tasks.length}</span></div>`;
+    section.innerHTML = `<div class="task-overview-column-heading"><h3>${escapeHtml(column.label)}</h3><span>${column.tasks.length}</span></div>`;
     const list = document.createElement('div');
     list.className = 'task-overview-column-list';
     if (!column.tasks.length) {
@@ -698,6 +748,7 @@ function saveDaySettings(event) {
 }
 
 function clearDaySettings() {
+  if (!canEditPlanner()) return;
   if (editingDayIndex === null) return;
   const dayName = weekdayNames[editingDayIndex];
   state.data.daySettings = state.data.daySettings || {};
@@ -985,14 +1036,11 @@ function createTaskElement({ task, dateKey: occurrenceDate, onComplete }) {
   item.setAttribute('role', 'button');
   item.setAttribute('tabindex', '0');
   item.setAttribute('aria-label', `Open ${task.title}`);
-  const assigneeLabel = task.assignee === 'me' ? 'Nick' : task.assignee === 'partner' ? 'Stephany' : 'Both';
-  const assigneeClass = task.assignee === 'me' ? 'assignee-me' : task.assignee === 'partner' ? 'assignee-partner' : 'assignee-both';
-  const assigneeDecoration = task.assignee === 'me'
-    ? '<span class="assignee-decoration nick-food-decoration" aria-hidden="true">🍛</span>'
-    : task.assignee === 'partner'
-      ? '<span class="assignee-decoration stephany-monkey-decoration" aria-hidden="true">🐒</span>'
-      : '';
-  const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'monthly' ? 'Every month' : task.recurrence === 'quarterly' ? 'Every 3 months' : '';
+  const assignedPerson = effectiveAssignee(task, occurrenceDate);
+  const assigneeLabel = HomeboardPlanner.label(assignedPerson, state.data.profile);
+  const assigneeClass = assignedPerson === 'me' ? 'assignee-me' : assignedPerson === 'partner' ? 'assignee-partner' : 'assignee-both';
+  const assigneeDecoration = '';
+  const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'fourweekly' ? 'Every 4 weeks' : task.recurrence === 'monthly' ? 'Every month' : task.recurrence === 'quarterly' ? 'Every 3 months' : '';
   const kindLabel = kind === 'expiry' ? 'Use-by' : kind === 'wellness' ? 'Wellness' : kind === 'event' ? 'Event' : 'Task';
   const eventTime = formatEventTime(task);
   item.innerHTML = `
@@ -1003,7 +1051,7 @@ function createTaskElement({ task, dateKey: occurrenceDate, onComplete }) {
       <span class="task-meta">
         ${eventTime ? `<span class="task-time">${eventTime}</span>` : '<span class="task-time untimed">Any time</span>'}
         <span class="kind-chip">${kindLabel}</span>
-        <span class="assignee-chip ${assigneeClass}"><span class="assignee-dot" aria-hidden="true"></span>${assigneeLabel}</span>
+        <span class="assignee-chip ${assigneeClass}"><span class="assignee-dot" aria-hidden="true"></span>${escapeHtml(assigneeLabel)}</span>
         ${kind === 'expiry' ? '<span aria-hidden="true">⌛</span>' : ''}
         ${recurrenceLabel ? `<span class="recurrence-icon" title="${recurrenceLabel}" aria-label="${recurrenceLabel}">↻</span>` : ''}
       </span>
@@ -1123,8 +1171,8 @@ function isDueOn(task, day) {
 
 function matchesRecurringDate(anchor, day, recurrence) {
   if (!anchor || day < anchor) return false;
-  if (recurrence === 'weekly' || recurrence === 'biweekly') {
-    const interval = recurrence === 'biweekly' ? 14 : 7;
+  if (recurrence === 'weekly' || recurrence === 'biweekly' || recurrence === 'fourweekly') {
+    const interval = recurrence === 'fourweekly' ? 28 : recurrence === 'biweekly' ? 14 : 7;
     return differenceInDays(anchor, day) % interval === 0;
   }
   if (recurrence !== 'monthly' && recurrence !== 'quarterly') return false;
@@ -1139,7 +1187,7 @@ function matchesRecurringDate(anchor, day, recurrence) {
 }
 
 function isRecurringTask(task) {
-  return ['weekly', 'biweekly', 'monthly', 'quarterly'].indexOf(task && task.recurrence) !== -1;
+  return ['weekly', 'biweekly', 'fourweekly', 'monthly', 'quarterly'].indexOf(task && task.recurrence) !== -1;
 }
 
 function getRecurringAnchorDate(task) {
@@ -1157,8 +1205,11 @@ function getRecurringAnchorDate(task) {
 }
 
 function rollOverdueRecurringTasks() {
+  if (!plannerIsWritable()) return;
   const currentWeekStart = startOfWeek(new Date());
-  let changed = false;
+  // Completion history survives stale task edits and is authoritative before
+  // rollover decides whether an old occurrence is still unfinished.
+  let changed = reconcileAnyDayCompletions(state.data);
 
   if (typeof window !== 'undefined' && window.HomeboardRecurrence && typeof window.HomeboardRecurrence.rollOverdueTask === 'function') {
     state.data.tasks.forEach((task) => {
@@ -1245,6 +1296,7 @@ function rollOverdueRecurringTasks() {
 function addRecurringDate(date, recurrence) {
   if (recurrence === 'weekly') return addDays(date, 7);
   if (recurrence === 'biweekly') return addDays(date, 14);
+  if (recurrence === 'fourweekly') return addDays(date, 28);
   if (recurrence === 'quarterly') return addMonths(date, 3);
   return addMonths(date, 1);
 }
@@ -1262,6 +1314,7 @@ function sortOccurrences(left, right) {
 }
 
 function completeTask(taskId, occurrenceDate, title) {
+  if (!canEditPlanner()) return;
   const key = completionKey(taskId, occurrenceDate);
   state.data.completions[key] = true;
   state.lastUndo = () => {
@@ -1275,33 +1328,40 @@ function completeTask(taskId, occurrenceDate, title) {
 }
 
 function completeAnyDayTask(taskId, title) {
+  if (!canEditPlanner()) return;
+  reconcileAnyDayCompletions(state.data);
   const task = state.data.tasks.find((entry) => entry.id === taskId);
-  if (!task) return;
-  const completion = recordAnyDayCompletion(task, dateKey(new Date()));
+  if (!task || !task.anyDay || !isAnyDayTaskOpen(task)) return;
   const previous = {
     anyDayCompleted: task.anyDayCompleted,
     nextAnyDayDate: task.nextAnyDayDate,
     lastMissedAnyDayDate: task.lastMissedAnyDayDate,
-    updatedAt: task.updatedAt,
+    scheduleUpdatedAt: task.anyDayScheduleUpdatedAt,
   };
+  const completion = recordAnyDayCompletion(task, dateKey(new Date()));
   if (isRecurringTask(task)) {
-    const completedDate = parseDate(task.nextAnyDayDate) || parseDate(task.anyDayDate) || new Date();
-    task.nextAnyDayDate = dateKey(addRecurringDate(completedDate, task.recurrence));
+    task.nextAnyDayDate = completion.nextAnyDayDate;
     delete task.anyDayCompleted;
     delete task.lastMissedAnyDayDate;
   } else {
     task.anyDayCompleted = true;
   }
-  task.updatedAt = nowIso();
+  task.updatedAt = completion.updatedAt;
   state.lastUndo = () => {
-    if (previous.anyDayCompleted === undefined) delete task.anyDayCompleted;
-    else task.anyDayCompleted = previous.anyDayCompleted;
-    if (previous.nextAnyDayDate === undefined) delete task.nextAnyDayDate;
-    else task.nextAnyDayDate = previous.nextAnyDayDate;
-    if (previous.lastMissedAnyDayDate === undefined) delete task.lastMissedAnyDayDate;
-    else task.lastMissedAnyDayDate = previous.lastMissedAnyDayDate;
-    task.updatedAt = previous.updatedAt;
+    // Sync can replace task objects while the Undo toast is visible.
+    const currentTask = state.data.tasks.find((entry) => entry.id === taskId);
+    const undoneAt = Math.max(Date.now(), Date.parse(completion.updatedAt) || 0,
+      Date.parse(currentTask && currentTask.updatedAt || '') || 0) + 1;
+    if (currentTask && currentTask.anyDayScheduleUpdatedAt === previous.scheduleUpdatedAt
+      && (!isRecurringTask(currentTask) || currentTask.nextAnyDayDate === completion.nextAnyDayDate)) {
+      ['anyDayCompleted', 'nextAnyDayDate', 'lastMissedAnyDayDate'].forEach((key) => {
+        if (previous[key] === undefined) delete currentTask[key];
+        else currentTask[key] = previous[key];
+      });
+      currentTask.updatedAt = new Date(undoneAt).toISOString();
+    }
     state.data.anyDayCompletions = (state.data.anyDayCompletions || []).filter((entry) => entry.id !== completion.id);
+    markDeleted('anyDayCompletions', completion.id, undoneAt);
     persist();
     render();
   };
@@ -1311,14 +1371,25 @@ function completeAnyDayTask(taskId, title) {
 }
 
 function recordAnyDayCompletion(task, completedDate) {
+  const occurrenceDate = task.nextAnyDayDate || task.anyDayDate || completedDate;
+  // The same occurrence completed on two devices is one completion. A later
+  // re-completion after Undo must be newer than its deletion marker.
+  const id = `any-day:${task.id}:${occurrenceDate}:${task.anyDayScheduleUpdatedAt || 'original'}`;
+  const deleted = state.data.meta && state.data.meta.deleted && state.data.meta.deleted.anyDayCompletions;
+  const completedAt = new Date(Math.max(Date.now(), (Number(deleted && deleted[id]) || 0) + 1,
+    (Date.parse(task.anyDayScheduleUpdatedAt || '') || 0) + 1,
+    (Date.parse(task.updatedAt || '') || 0) + 1)).toISOString();
   const entry = {
-    id: createId(),
+    id,
     taskId: task.id,
     title: task.title,
-    assignee: task.assignee || 'both',
+    assignee: effectiveAssignee(task),
     completedDate,
-    completedAt: nowIso(),
-    updatedAt: nowIso(),
+    occurrenceDate,
+    recurrence: task.recurrence || 'none',
+    nextAnyDayDate: isRecurringTask(task) ? dateKey(addRecurringDate(parseDate(occurrenceDate), task.recurrence)) : '',
+    completedAt,
+    updatedAt: completedAt,
   };
   state.data.anyDayCompletions = state.data.anyDayCompletions || [];
   state.data.anyDayCompletions.push(entry);
@@ -1327,6 +1398,7 @@ function recordAnyDayCompletion(task, completedDate) {
 
 function handleTaskSubmit(event) {
   event.preventDefault();
+  if (!canEditPlanner()) return;
   // Read the controls directly instead of using FormData. This is more
   // reliable on the older Safari shipped with iPad mini 2.
   const title = String(els.taskTitle.value || '').trim();
@@ -1335,8 +1407,13 @@ function handleTaskSubmit(event) {
   const startTime = String(els.eventStart && els.eventStart.value || '');
   const endTime = String(els.eventEnd && els.eventEnd.value || '');
   const recurrence = String(els.taskRepeat.value || 'none');
+  const completedInput = accountElement('taskCompletedOn').value;
+  if (completedInput && (!HomeboardPlanner.parseDate(completedInput) || completedInput > dateKey(new Date()))) {
+    showToast('Choose a valid completion date, today or earlier.'); return;
+  }
   const volunteering = isVolunteeringTask(title);
   const editingTask = editingTaskId ? state.data.tasks.find((task) => task.id === editingTaskId) : null;
+  const emailBefore = editingTask ? plannerEmailSnapshot(editingTask) : null;
   const startWeekValue = recurrence !== 'none' ? String(els.taskStartWeek && els.taskStartWeek.value || '').trim() : '';
   const startWeekDate = startWeekValue ? parseDate(startWeekValue) : null;
   if (!title || (!anyDay && !date)) return;
@@ -1359,6 +1436,15 @@ function handleTaskSubmit(event) {
     }
   }
   const effectiveDate = recurrence !== 'none' && !anyDay ? firstRecurrenceDate : date;
+  const previousStart = editingTask && (editingTask.recurrenceStartWeek || editingTask.recurrenceStartDate
+    || editingTask.anyDayDate || editingTask.nextAnyDayDate);
+  const sameAnyDaySchedule = Boolean(editingTask && editingTask.anyDay && anyDay
+    && editingTask.recurrence === recurrence
+    && (recurrence === 'none' || (previousStart && dateKey(startOfWeek(parseDate(previousStart))) === firstRecurrenceDate)));
+  const previousChangeTime = editingTask ? (state.data.anyDayCompletions || []).reduce((latest, entry) => {
+    return entry.taskId === editingTask.id
+      ? Math.max(latest, Date.parse(entry.completedAt || entry.updatedAt || '') || 0) : latest;
+  }, Math.max(Date.parse(editingTask.updatedAt || '') || 0, Date.parse(editingTask.anyDayScheduleUpdatedAt || '') || 0)) : 0;
   const updatedTask = {
     title,
     date: effectiveDate,
@@ -1369,33 +1455,52 @@ function handleTaskSubmit(event) {
     kind: String(els.taskType.value || 'task'),
     recurrence,
     reminder: String(els.taskReminder && els.taskReminder.value || 'day-before'),
-    updatedAt: nowIso(),
+    updatedAt: new Date(Math.max(Date.now(), previousChangeTime + 1)).toISOString(),
   };
   if (recurrence !== 'none') {
     updatedTask.recurrenceStartWeek = dateKey(startOfWeek(startWeekDate));
-    updatedTask.recurrenceStartDate = firstRecurrenceDate;
+    updatedTask.recurrenceStartDate = sameAnyDaySchedule
+      ? (editingTask.recurrenceStartDate || firstRecurrenceDate) : firstRecurrenceDate;
   }
   if (anyDay && recurrence !== 'none') {
-    updatedTask.nextAnyDayDate = firstRecurrenceDate || dateKey(startOfWeek(state.weekStart));
+    // Editing a title, assignee or reminder must not reset completed work.
+    updatedTask.nextAnyDayDate = sameAnyDaySchedule
+      ? (editingTask.nextAnyDayDate || editingTask.anyDayDate || firstRecurrenceDate)
+      : (firstRecurrenceDate || dateKey(startOfWeek(state.weekStart)));
   }
   if (anyDay) {
-    updatedTask.anyDayDate = recurrence !== 'none'
+    updatedTask.anyDayDate = sameAnyDaySchedule ? editingTask.anyDayDate : recurrence !== 'none'
       ? (firstRecurrenceDate || dateKey(startOfWeek(state.weekStart)))
       : (editingTask && editingTask.anyDayDate) || (editingTask && editingTask.nextAnyDayDate) || dateKey(state.weekStart);
+    if (editingTask && !sameAnyDaySchedule) {
+      updatedTask.anyDayScheduleUpdatedAt = updatedTask.updatedAt;
+      delete editingTask.anyDayCompleted;
+    }
   }
+  updatedTask.rotate = Boolean(accountElement('taskRotate').checked && recurrence !== 'none');
+  updatedTask.rotationAnchor = editingTask && editingTask.rotationAnchor || firstRecurrenceDate || effectiveDate;
   if (editingTask) {
     Object.assign(editingTask, updatedTask);
     if (!anyDay || recurrence === 'none') delete editingTask.nextAnyDayDate;
-    if (!anyDay) delete editingTask.anyDayDate;
+    if (!anyDay) {
+      delete editingTask.anyDayDate;
+      delete editingTask.anyDayScheduleUpdatedAt;
+    }
     if (recurrence === 'none') {
       delete editingTask.recurrenceStartWeek;
       delete editingTask.recurrenceStartDate;
     }
     if (anyDay) delete editingTask.date;
   } else {
-    state.data.tasks.push({ id: createId(), ...updatedTask });
+    updatedTask.id = createId();
+    state.data.tasks.push(updatedTask);
   }
+  const savedTask = editingTask || updatedTask;
+  const completedOn = accountElement('taskCompletedOn').value;
+  if (completedOn && !applyRecordedCompletion(savedTask, completedOn)) return;
+  const notify = accountElement('notifyHousehold').checked;
   persist();
+  if (notify) notifyPlannerChange(savedTask.id, Boolean(editingTask), emailBefore);
   closeDialog(els.eventDialog);
   if (effectiveDate) state.weekStart = startOfWeek(parseDate(effectiveDate));
   render();
@@ -1407,6 +1512,9 @@ function openEventDialog(options = {}) {
   editingTaskId = task ? task.id : null;
   editingOccurrenceDate = options.date || (task && task.date) || null;
   els.taskForm.reset();
+  populatePeopleChoices();
+  accountElement('taskRotate').checked = Boolean(task && task.rotate);
+  accountElement('taskCompletedOn').max = dateKey(new Date());
   if (els.dialogTitle) els.dialogTitle.textContent = task ? 'Edit event' : 'Add an event';
   if (els.saveEventButton) els.saveEventButton.textContent = task ? 'Save changes' : 'Save event';
   if (els.deleteEventButton) els.deleteEventButton.hidden = !task;
@@ -1492,6 +1600,7 @@ function updateTimeClearButtons() {
 }
 
 function deleteEditingEvent() {
+  if (!canEditPlanner()) return;
   if (!editingTaskId) return;
   const taskIndex = state.data.tasks.findIndex((entry) => entry.id === editingTaskId);
   const task = taskIndex >= 0 ? state.data.tasks[taskIndex] : null;
@@ -1523,6 +1632,7 @@ function deleteEditingEvent() {
 }
 
 function handleListClick(event) {
+  if (!canEditPlanner()) return;
   const target = event.target.closest('[data-list-action]');
   if (!target) return;
   const listName = target.dataset.listName;
@@ -1530,7 +1640,7 @@ function handleListClick(event) {
   const item = state.data[listName].find((entry) => entry.id === itemId);
   if (!item) return;
   if (target.dataset.listAction === 'edit') {
-    const editedTitle = window.prompt('Edit item', item.title);
+    const editedTitle = window.prompt('Edit item\n\nDo not enter payment-card details, passwords, government identification numbers, medical records, or other highly sensitive information.', item.title);
     if (editedTitle === null) return;
     const nextTitle = editedTitle.trim();
     if (!nextTitle) {
@@ -1622,6 +1732,7 @@ function renderList(listName, container, countElement, emptyMessage) {
 }
 
 function clearCompleted(listName) {
+  if (!canEditPlanner()) return;
   const before = state.data[listName].length;
   const deletedItems = state.data[listName]
     .map((item, index) => ({ item: JSON.parse(JSON.stringify(item)), index }))
@@ -1657,7 +1768,7 @@ function showToast(message, actionLabel = '') {
   const action = els.toast.querySelector('#toastAction');
   if (action) {
     action.addEventListener('click', () => {
-      if (state.lastUndo) state.lastUndo();
+      if (state.lastUndo && canEditPlanner()) state.lastUndo();
       state.lastUndo = null;
       els.toast.classList.remove('visible');
     });
@@ -1666,7 +1777,11 @@ function showToast(message, actionLabel = '') {
 }
 
 function exportBackup() {
-  const backupText = JSON.stringify(state.data, null, 2);
+  downloadJson(Object.assign({}, state.data, { _homeboardBackup: { environment: plannerEnvironment(), householdId: householdState.selectedHouseholdId || '', version: 2 } }), 'backup');
+}
+
+function downloadJson(data, kind) {
+  const backupText = JSON.stringify(data, null, 2);
   // iOS 12 Safari can navigate to a blob URL but cannot reliably open the
   // resulting resource. Show a copyable fallback instead of leaving the user
   // on Safari's "WebKitBlobResource error" page.
@@ -1674,25 +1789,30 @@ function exportBackup() {
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const link = document.createElement('a');
   if (isIOS || !('download' in link)) {
-    openBackupFallback(backupText);
+    openBackupFallback(backupText, kind);
     return;
   }
   const blob = new Blob([backupText], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   link.href = url;
-  link.download = `homeboard-backup-${dateKey(new Date())}.json`;
+  link.download = `homeboard-${kind}-${dateKey(new Date())}.json`;
   link.click();
-  URL.revokeObjectURL(url);
-  showToast('Backup downloaded');
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast(kind === 'backup' ? 'Backup downloaded' : 'Account export downloaded');
 }
 
-function openBackupFallback(backupText) {
+function openBackupFallback(backupText, kind) {
   if (!els.backupDialog || !els.backupText) {
     showToast('This iPad cannot download backups directly. Use a laptop to download one.');
     return;
   }
   els.backupText.value = backupText;
-  if (els.backupStatus) els.backupStatus.textContent = 'The backup text is ready to copy.';
+  const label = kind === 'account-export' ? 'account export' : 'backup';
+  document.querySelector('#backupTitle').textContent = `Copy your ${label}`;
+  document.querySelector('#backupInstructions').textContent = `Copy this ${label} text, paste it into a text file and save it with a .json ending. Keep the file private.`;
+  els.copyBackupButton.textContent = `Copy ${label} text`;
+  els.backupText.setAttribute('aria-label', `Homeboard ${label} JSON`);
+  if (els.backupStatus) els.backupStatus.textContent = `The ${label} text is ready to copy.`;
   openDialog(els.backupDialog);
 }
 
@@ -1704,35 +1824,290 @@ function copyBackupText() {
   try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
   if (copied) {
     if (els.backupStatus) els.backupStatus.textContent = 'Copied. Paste it into a .json file on your laptop.';
-    showToast('Backup copied');
+    showToast('JSON copied');
   } else if (els.backupStatus) {
     els.backupStatus.textContent = 'Please press and hold the selected text, then choose Copy.';
   }
+}
+
+function accountElement(id) { return document.getElementById(id); }
+
+function bindAccountDataEvents() {
+  accountElement('exportAccountButton').addEventListener('click', exportAccountData);
+  accountElement('deleteAccountButton').addEventListener('click', reviewAccountDeletion);
+  accountElement('deleteAccountForm').addEventListener('submit', deleteAccount);
+  ['closeDeleteAccountButton', 'cancelDeleteAccountButton'].forEach((id) => {
+    accountElement(id).addEventListener('click', cancelAccountDeletion);
+  });
+  ['deleteAccountPassword', 'deleteAccountPhrase'].forEach((id) => {
+    accountElement(id).addEventListener('input', renderAccountControls);
+  });
+  accountElement('deleteAccountDialog').addEventListener('cancel', (event) => {
+    event.preventDefault();
+    cancelAccountDeletion();
+  });
+  window.addEventListener('storage', (event) => {
+    if (event.key === SYNC_SESSION_KEY && !event.newValue && !localStorage.getItem(SYNC_SESSION_KEY) && syncState.session) {
+      signOut();
+    }
+    if (event.key && event.key.startsWith(HOUSEHOLD_DELETED_KEY) && event.newValue) {
+      try {
+        const deleted = JSON.parse(event.newValue);
+        if (deleted.project === syncState.config.url && deleted.householdId) {
+          applyHouseholdDeletion(deleted.householdId);
+        }
+      } catch (error) { /* Ignore invalid events from browser storage. */ }
+    }
+    if (event.key === ACCOUNT_RESET_KEY && event.newValue !== storageGeneration) {
+      clearDeletedAccountFromDevice(false).then(() => {
+        accountElement('accountDataStatus').textContent = 'An account was deleted in another tab. This device’s saved login and planner have been cleared.';
+      });
+    }
+  });
+}
+
+function renderAccountControls() {
+  const signedIn = Boolean(syncState.session);
+  ['exportAccountButton', 'deleteAccountButton', 'includeDeviceData'].forEach((id) => {
+    accountElement(id).disabled = !signedIn || accountBusy || syncState.authenticating || householdDeleteBusy;
+  });
+  accountElement('confirmDeleteAccountButton').disabled = !signedIn || accountBusy || !deletionPreview
+    || accountElement('deleteAccountConfirmation').hidden
+    || accountElement('deleteAccountPhrase').value !== 'DELETE'
+    || !accountElement('deleteAccountPassword').value;
+  ['closeDeleteAccountButton', 'cancelDeleteAccountButton', 'deleteAccountPassword', 'deleteAccountPhrase'].forEach((id) => {
+    accountElement(id).disabled = syncState.deleting;
+  });
+}
+
+function accountErrorMessage(error) {
+  if (/function.*(not find|does not exist)|schema cache|404|Failed to fetch/i.test(error.message || '')) {
+    return 'This account service is unavailable. The Homeboard operator may need to finish setup. Your data has been kept.';
+  }
+  return error.message || 'The request failed. Your data has been kept.';
+}
+
+async function exportAccountData() {
+  if (accountBusy || !syncState.session) return;
+  const current = customerContext();
+  accountBusy = true;
+  renderAccountControls();
+  const status = accountElement('accountDataStatus');
+  status.textContent = 'Preparing your account export…';
+  try {
+    const includeDevice = accountElement('includeDeviceData').checked;
+    const data = await householdRpc('export_my_account_data', {});
+    if (!current()) return;
+    if (!data || data.format !== 'homeboard-account-export' || !data.account
+      || data.account.id !== syncState.session.user.id) throw new Error('The account export could not be verified. Please try again.');
+    data.access_and_delivery = await householdRpc('export_my_access_records', {});
+    if (!current()) return;
+    if (includeDevice) data.device_planner = JSON.parse(JSON.stringify(state.data));
+    downloadJson(data, 'account-export');
+    status.textContent = 'Your account export is ready. Keep this file private. Use Download backup for a restorable planner copy.';
+  } catch (error) {
+    if (current()) status.textContent = accountErrorMessage(error);
+  } finally {
+    accountBusy = false;
+    renderAccountControls();
+  }
+}
+
+async function reviewAccountDeletion() {
+  if (accountBusy || !syncState.session) return;
+  deletionPreview = null;
+  accountBusy = true;
+  accountElement('deleteAccountPassword').value = '';
+  accountElement('deleteAccountPhrase').value = '';
+  accountElement('deleteAccountConfirmation').hidden = true;
+  accountElement('deleteAccountHouseholds').textContent = '';
+  accountElement('deleteAccountIdentity').textContent = syncState.session.user.email || '';
+  const status = accountElement('deleteAccountStatus');
+  status.textContent = 'Checking your account and household ownership…';
+  openDialog(accountElement('deleteAccountDialog'));
+  renderAccountControls();
+  try {
+    const preview = await householdRpc('preview_my_account_deletion', {});
+    if (!accountElement('deleteAccountDialog').hasAttribute('open')) return;
+    if (!preview || !syncState.session || preview.account_id !== syncState.session.user.id
+      || !Array.isArray(preview.households) || typeof preview.platform_admin !== 'boolean') {
+      throw new Error('Your account could not be verified. Sign in again.');
+    }
+    const sharedOwner = preview.households.some((h) => h.role === 'owner' && h.other_members > 0);
+    preview.households.forEach((h) => {
+      const item = document.createElement('li');
+      item.textContent = `${h.name}: ${h.role === 'owner'
+        ? h.other_members > 0 ? 'transfer ownership first' : 'household and planner will be deleted'
+        : 'you will leave; the shared planner stays'}.`;
+      accountElement('deleteAccountHouseholds').appendChild(item);
+    });
+    status.textContent = preview.platform_admin
+      ? 'Another administrator must remove your platform administrator access before you can delete your account.'
+      : sharedOwner ? 'Transfer ownership in Household settings, then review deletion again.'
+        : 'Confirm your current password and type DELETE to continue.';
+    deletionPreview = preview;
+    accountElement('deleteAccountConfirmation').hidden = preview.platform_admin || sharedOwner;
+  } catch (error) {
+    status.textContent = accountErrorMessage(error);
+  } finally {
+    accountBusy = false;
+    renderAccountControls();
+  }
+}
+
+function cancelAccountDeletion() {
+  if (syncState.deleting) return;
+  deletionPreview = null;
+  accountElement('deleteAccountPassword').value = '';
+  accountElement('deleteAccountPhrase').value = '';
+  closeDialog(accountElement('deleteAccountDialog'));
+}
+
+async function deleteAccount(event) {
+  event.preventDefault();
+  if (accountBusy || !deletionPreview || accountElement('deleteAccountConfirmation').hidden
+    || accountElement('deleteAccountPhrase').value !== 'DELETE' || !accountElement('deleteAccountPassword').value) return;
+  accountBusy = true;
+  const status = accountElement('deleteAccountStatus');
+  status.textContent = 'Confirming your password and deleting your account…';
+  renderAccountControls();
+  try {
+    const session = await ensureSyncSession();
+    if (!session || session.user.id !== deletionPreview.account_id) throw new Error('Sign in again and review deletion.');
+    syncState.deleting = true;
+    syncState.generation += 1; // Discard all earlier cloud responses.
+    stopSyncPolling();
+    if (syncState.queueTimer) window.clearTimeout(syncState.queueTimer);
+    syncState.queueTimer = null;
+    syncState.pending = false;
+    renderAuthControls();
+    const body = { password: accountElement('deleteAccountPassword').value, confirmation: 'DELETE', preview: deletionPreview };
+    accountElement('deleteAccountPassword').value = '';
+    let result;
+    try {
+      result = await syncRequest('/functions/v1/delete-account', { method: 'POST', body }, session.access_token);
+    } catch (error) {
+      // A connection loss may follow a successful server deletion. Signing out
+      // prevents automatic uploads while the operator checks an unknown result.
+      if (!error.status || error.status >= 500) signOut();
+      throw error;
+    } finally { body.password = ''; }
+    if (!result || result.deleted !== true || result.account_id !== session.user.id) {
+      signOut();
+      throw new Error('The deletion result could not be verified. Your local data has been kept. Contact the Homeboard operator.');
+    }
+    const cleared = await clearDeletedAccountFromDevice(true);
+    closeDialog(accountElement('deleteAccountDialog'));
+    deletionPreview = null;
+    accountElement('accountDataStatus').textContent = cleared
+      ? 'Account deleted. Your login and planner on this device have been cleared.'
+      : 'Account deleted. Some browser storage could not be cleared. Clear this site’s browser data on this device.';
+    showToast('Account deleted');
+  } catch (error) {
+    status.textContent = `${accountErrorMessage(error)} Close this dialog and review deletion again${syncState.session ? '.' : ' after signing in.'}`;
+    deletionPreview = null;
+    accountElement('deleteAccountConfirmation').hidden = true;
+  } finally {
+    syncState.deleting = false;
+    accountBusy = false;
+    accountElement('deleteAccountPassword').value = '';
+    renderAuthControls();
+    if (syncState.session) startSyncPolling();
+  }
+}
+
+function readStorageGeneration() {
+  try { return localStorage.getItem(ACCOUNT_RESET_KEY) || ''; } catch (error) { return ''; }
+}
+
+function createEmptyPlanner() {
+  return { tasks: [], todos: [], groceries: [], completions: {}, anyDayCompletions: [], daySettings: {},
+    meta: { demo: false, footballScheduleVersion: FOOTBALL_SCHEDULE_VERSION, volunteeringStartFixVersion: '20260923-v2' } };
+}
+
+async function clearDeletedAccountFromDevice(broadcast) {
+  let cleared = true;
+  if (broadcast) {
+    try { localStorage.setItem(ACCOUNT_RESET_KEY, `${Date.now()}-${Math.random()}`); } catch (error) { cleared = false; }
+  }
+  storageGeneration = readStorageGeneration();
+  try { signOut({ discardPlanner: true }); } catch (error) { cleared = false; }
+  [SYNC_SESSION_KEY, SYNC_EMAIL_KEY, HOUSEHOLD_SELECTION_KEY, STORAGE_KEY, BACKUP_STORAGE_KEY].concat(LEGACY_STORAGE_KEYS).forEach((key) => {
+    try { localStorage.removeItem(key); } catch (error) { cleared = false; }
+  });
+  try {
+    Object.keys(localStorage).filter(key => [STORAGE_KEY, BACKUP_STORAGE_KEY, HOUSEHOLD_SELECTION_KEY]
+      .some(base => key.startsWith(`${base}:scope:`))).forEach(key => localStorage.removeItem(key));
+  } catch (error) { cleared = false; }
+  state.data = createEmptyPlanner();
+  loadedDataFromStorage = true;
+  state.lastUndo = null;
+  if (state.toastTimer) window.clearTimeout(state.toastTimer);
+  els.toast.classList.remove('visible');
+  els.syncEmail.value = '';
+  els.syncPassword.value = '';
+  els.backupText.value = '';
+  accountElement('deleteAccountPassword').value = '';
+  accountElement('deleteAccountPhrase').value = '';
+  // Clear any stale editor values and prevent an old form restoring entries.
+  document.querySelectorAll('dialog').forEach((dialog) => {
+    if (dialog !== els.settingsDialog) closeDialog(dialog);
+  });
+  els.taskForm.reset();
+  els.daySettingsForm.reset();
+  persist({ sync: false });
+  render();
+  if (window.indexedDB) {
+    cleared = (await new Promise((resolve) => {
+      let finished = false;
+      const finish = (ok) => { if (!finished) { finished = true; resolve(ok); } };
+      window.setTimeout(() => finish(false), 3000);
+      try {
+        const request = window.indexedDB.open(IDB_NAME, 1);
+        request.onupgradeneeded = () => {
+          if (!request.result.objectStoreNames.contains(IDB_STORE)) request.result.createObjectStore(IDB_STORE);
+        };
+        request.onerror = () => finish(false);
+        request.onsuccess = () => {
+          const database = request.result;
+          try {
+            const transaction = database.transaction([IDB_STORE], 'readwrite');
+            transaction.objectStore(IDB_STORE).clear();
+            transaction.objectStore(IDB_STORE).put({ data: createEmptyPlanner(), generation: storageGeneration }, 'current');
+            transaction.oncomplete = () => { database.close(); finish(true); };
+            transaction.onerror = transaction.onabort = () => { database.close(); finish(false); };
+          } catch (error) { database.close(); finish(false); }
+        };
+      } catch (error) { finish(false); }
+    })) && cleared;
+  }
+  return cleared;
 }
 
 function importBackup(event) {
   const files = event.target.files;
   const file = files && files.length ? files[0] : null;
   if (!file) return;
+  if (!canEditPlanner()) { event.target.value = ''; return; }
+  const importScope = activePlannerScope;
+  const importGeneration = syncState.generation;
   const reader = new FileReader();
   reader.onload = () => {
     try {
+      if (activePlannerScope !== importScope || syncState.generation !== importGeneration || !canEditPlanner()) throw new Error('The selected household changed');
       const imported = JSON.parse(reader.result);
-      if (!Array.isArray(imported.tasks) || !Array.isArray(imported.todos) || !Array.isArray(imported.groceries)) throw new Error('Invalid backup');
-      state.data = {
-        tasks: imported.tasks.map(normalizeTask),
-        todos: imported.todos.map(normalizeListItem),
-        groceries: imported.groceries.map(normalizeListItem),
-        completions: imported.completions || {},
-        anyDayCompletions: Array.isArray(imported.anyDayCompletions) ? imported.anyDayCompletions.map(normalizeAnyDayCompletion) : [],
-        daySettings: normalizeDaySettings(imported.daySettings),
-      };
+      const source = imported._homeboardBackup;
+      if (source && source.environment !== plannerEnvironment()) throw new Error('Backups cannot be moved between Development and Production');
+      const recovered = normalizePlannerData(imported.data || imported);
+      if (!recovered) throw new Error('Invalid backup');
+      if (!window.confirm('Restore this backup into the currently selected planner? Its current contents will be replaced.')) return;
+      state.data = recovered;
       persist();
       render();
       closeDialog(els.settingsDialog);
       showToast('Backup restored');
     } catch (error) {
-      showToast('That backup file could not be restored');
+      showToast(error.message || 'That backup file could not be restored');
     }
     event.target.value = '';
   };
@@ -1740,6 +2115,10 @@ function importBackup(event) {
 }
 
 function loadSyncConfig() {
+  if (IS_DEMO_HOST) return { url: '', key: '' };
+  // Ignore saved manual overrides on the public staging site, including any
+  // stale production connection. Local developer previews remain configurable.
+  if (IS_STAGING_HOST) return { url: CENTRAL_STAGING_CONFIG.url, key: CENTRAL_STAGING_CONFIG.key };
   if (!IS_DEVELOPMENT_HOST) return { url: CENTRAL_PRODUCTION_CONFIG.url, key: CENTRAL_PRODUCTION_CONFIG.key };
   try {
     const stored = JSON.parse(localStorage.getItem(SYNC_CONFIG_KEY));
@@ -1755,13 +2134,25 @@ function loadSyncConfig() {
 }
 
 function loadSyncSession() {
+  if (IS_DEMO_HOST) return null;
   try {
     const stored = JSON.parse(localStorage.getItem(SYNC_SESSION_KEY));
+    if (storageGeneration && (!stored || stored.device_generation !== storageGeneration)) return null;
+    if (IS_STAGING_HOST && !sessionBelongsToProject(stored, CENTRAL_STAGING_CONFIG.url)) return null;
     if (stored && stored.access_token && stored.refresh_token && stored.user && stored.user.id) return stored;
   } catch (error) {
     // A broken session should never prevent the local planner from opening.
   }
   return null;
+}
+
+function sessionBelongsToProject(session, projectUrl) {
+  // This is a routing safeguard for saved sessions, not JWT authentication.
+  // Supabase still validates the token on every authenticated request.
+  try {
+    const payload = String(session.access_token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(window.atob(payload)).iss === `${projectUrl}/auth/v1`;
+  } catch (error) { return false; }
 }
 
 function loadSyncEmail() {
@@ -1774,7 +2165,11 @@ function loadSyncEmail() {
 
 function loadHouseholdSelection() {
   try {
-    return String(localStorage.getItem(HOUSEHOLD_SELECTION_KEY) || '');
+    const accountScope = plannerScopeFor(syncState.session, '');
+    if (!accountScope) return '';
+    const saved = localStorage.getItem(scopedStorageKey(HOUSEHOLD_SELECTION_KEY, accountScope));
+    // The old selection is only a hint; membership is verified before sync.
+    return String(saved === null ? localStorage.getItem(HOUSEHOLD_SELECTION_KEY) || '' : saved);
   } catch (error) {
     return '';
   }
@@ -1782,16 +2177,56 @@ function loadHouseholdSelection() {
 
 function saveHouseholdSelection() {
   try {
-    if (householdState.selectedHouseholdId) localStorage.setItem(HOUSEHOLD_SELECTION_KEY, householdState.selectedHouseholdId);
-    else localStorage.removeItem(HOUSEHOLD_SELECTION_KEY);
+    const accountScope = plannerScopeFor(syncState.session, '');
+    if (accountScope) localStorage.setItem(scopedStorageKey(HOUSEHOLD_SELECTION_KEY, accountScope), householdState.selectedHouseholdId || '');
+    localStorage.removeItem(HOUSEHOLD_SELECTION_KEY);
   } catch (error) {
     // Local storage is optional; the selected household can be recovered on refresh.
   }
 }
 
+function plannerScopeFor(session, householdId, config) {
+  if (!session || !session.user || !session.user.id) return '';
+  return encodeURIComponent(JSON.stringify([(config || syncState.config).url, session.user.id, householdId || null]));
+}
+
+function scopedStorageKey(base, scope) {
+  return scope ? `${base}:scope:${scope}` : base;
+}
+
+function plannerDatabaseKey(scope) { return scope ? `scope:${scope}` : 'current'; }
+
+function activatePlannerScope(scope, discardOutgoing = false) {
+  if (scope === activePlannerScope) return;
+  // Flush the outgoing planner to its own cache, never the new destination.
+  if (!discardOutgoing && loadedDataFromStorage) persist({ sync: false });
+  activePlannerScope = scope;
+  plannerGeneration += 1;
+  plannerRevision += 1;
+  if (syncState.queueTimer) window.clearTimeout(syncState.queueTimer);
+  syncState.queueTimer = null;
+  syncState.pending = syncState.busy;
+  loadedDataFromStorage = false;
+  state.data = loadData();
+  state.lastUndo = null;
+  editingTaskId = null;
+  editingOccurrenceDate = null;
+  editingDayIndex = null;
+  if (state.toastTimer) window.clearTimeout(state.toastTimer);
+  els.toast.classList.remove('visible');
+  [els.eventDialog, els.daySettingsDialog, els.taskOverviewDialog, els.backupDialog].forEach(closeDialog);
+  els.taskForm.reset();
+  els.daySettingsForm.reset();
+  els.todoInput.value = '';
+  els.groceryInput.value = '';
+  render();
+  recoverFromIndexedDB();
+}
+
 function initializeSync() {
-  if (IS_DEVELOPMENT_HOST && els.syncProjectUrl) els.syncProjectUrl.value = syncState.config.url;
-  if (IS_DEVELOPMENT_HOST && els.syncPublishableKey) els.syncPublishableKey.value = syncState.config.key;
+  resetSignupAcknowledgement();
+  if (MANUAL_SYNC_CONFIG_ALLOWED && els.syncProjectUrl) els.syncProjectUrl.value = syncState.config.url;
+  if (MANUAL_SYNC_CONFIG_ALLOWED && els.syncPublishableKey) els.syncPublishableKey.value = syncState.config.key;
   if (els.syncEmail) els.syncEmail.value = loadSyncEmail() || (syncState.session && syncState.session.user && syncState.session.user.email) || '';
   if (els.inviteTokenInput) {
     try { els.inviteTokenInput.value = new URL(window.location.href).searchParams.get('invite') || ''; } catch (error) { /* Older Safari can ignore a malformed URL. */ }
@@ -1807,7 +2242,7 @@ function initializeSync() {
 }
 
 function saveSyncConfig() {
-  if (!IS_DEVELOPMENT_HOST) {
+  if (!MANUAL_SYNC_CONFIG_ALLOWED) {
     setSyncStatus('This Homeboard build is centrally configured.', 'connected');
     return;
   }
@@ -1824,6 +2259,8 @@ function saveSyncConfig() {
   const connectionChanged = syncState.config.url !== url || syncState.config.key !== key;
   syncState.config = { url, key };
   if (connectionChanged) {
+    syncState.generation += 1;
+    resetSignupAcknowledgement();
     syncState.session = null;
     stopSyncPolling();
     localStorage.removeItem(SYNC_SESSION_KEY);
@@ -1837,6 +2274,7 @@ function saveSyncConfig() {
     platformAdminState.households = [];
     platformAdminState.loaded = false;
     saveHouseholdSelection();
+    activatePlannerScope('');
     renderPlatformAdminUI();
   }
   localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(syncState.config));
@@ -1851,6 +2289,15 @@ function saveSyncConfig() {
 }
 
 async function signIn(createAccount) {
+  if (syncState.authenticating || syncState.deleting) return;
+  if (createAccount && (!els.signupAcknowledgement || !els.signupAcknowledgement.checked)) {
+    setSyncStatus('Read and agree to the Terms of Use and acknowledge the Privacy Notice before creating an account.', 'error');
+    if (els.signupAcknowledgement) {
+      els.signupAcknowledgement.setAttribute('aria-invalid', 'true');
+      els.signupAcknowledgement.focus();
+    }
+    return;
+  }
   if (!syncState.config.url || !syncState.config.key) {
     setSyncStatus('Save the Supabase connection first.', 'error');
     return;
@@ -1861,29 +2308,99 @@ async function signIn(createAccount) {
     setSyncStatus('Enter an email and a password of at least 8 characters.', 'error');
     return;
   }
-  localStorage.setItem(SYNC_EMAIL_KEY, email);
+  syncState.authenticating = true;
+  syncState.generation += 1;
   setSyncStatus(createAccount ? 'Creating account…' : 'Signing in…');
   try {
-    const path = createAccount ? '/auth/v1/signup' : '/auth/v1/token?grant_type=password';
-    const response = await syncRequest(path, { method: 'POST', body: { email, password } });
+    localStorage.setItem(SYNC_EMAIL_KEY, email);
+    const path = createAccount ? '/auth/v1/signup?redirect_to=' + encodeURIComponent(signupReturnUrl()) : '/auth/v1/token?grant_type=password';
+    const body = { email, password };
+    if (createAccount) {
+      // Supabase stores signup data on the account, including when email
+      // confirmation is required. This is user metadata, not an audit log.
+      body.data = { homeboard_acknowledgement: {
+        terms_version: PRIVACY_TERMS_VERSION,
+        privacy_notice_version: PRIVACY_TERMS_VERSION,
+        acceptable_use_version: PRIVACY_TERMS_VERSION,
+        acknowledged_at: nowIso(),
+      } };
+    }
+    const response = await syncRequest(path, { method: 'POST', body });
+    resetSignupAcknowledgement();
+    els.syncPassword.value = '';
     if (!response.access_token) {
-      setSyncStatus('Account created. Check the confirmation email, then sign in.', 'connected');
+      setSyncStatus('Signup request received. Check your inbox and spam folder for a separate account-confirmation email. Already registered? Use Sign in or Forgot password. If your confirmation email is missing, use Resend confirmation email.', 'connected');
       return;
     }
     setSyncSession(response);
     startSyncPolling();
     await loadHouseholds(true);
     await loadPlatformAdminUI(true);
-    await syncNow(true);
-    els.syncPassword.value = '';
+    await syncNow(true, true);
   } catch (error) {
     setSyncStatus(error.message || 'Cloud sign-in failed.', 'error');
+  } finally {
+    syncState.authenticating = false;
+    renderAuthControls();
   }
 }
 
-function signOut() {
+function resetSignupAcknowledgement() {
+  if (!els.signupAcknowledgement) return;
+  els.signupAcknowledgement.checked = false;
+  els.signupAcknowledgement.removeAttribute('aria-invalid');
+}
+
+function renderAuthControls() {
+  renderCustomerFeatures();
+  const signedIn = Boolean(syncState.session);
+  accountElement('signedOutAccountPanel').hidden = signedIn;
+  accountElement('signedInAccountPanel').hidden = !signedIn;
+  accountElement('signedInEmail').textContent = signedIn && syncState.session.user ? syncState.session.user.email || 'Homeboard account' : '';
+  if (els.signupAcknowledgementPanel) els.signupAcknowledgementPanel.hidden = signedIn;
+  if (els.syncSignUpButton) els.syncSignUpButton.hidden = signedIn;
+  [els.syncEmail, els.syncPassword, els.syncSignInButton, els.syncSignUpButton,
+    els.syncSignOutButton, els.saveSyncConfigButton, els.signupAcknowledgement].forEach((control) => {
+    if (control) control.disabled = syncState.authenticating || syncState.deleting || householdDeleteBusy;
+  });
+  accountElement('resendConfirmationButton').disabled = syncState.authenticating || syncState.deleting || householdDeleteBusy || Boolean(customerState.requestingConfirmation);
+  renderAccountControls();
+}
+
+async function logoutFromUI() {
+  if (!syncState.session || syncState.deleting || householdDeleteBusy) return;
+  const token = syncState.session.access_token;
+  const config = { ...syncState.config };
+  signOut();
+  const generation = syncState.generation;
+  // Clear this browser immediately, including its other tabs, even offline.
+  // Revocation is limited to this session so other devices keep their login.
+  const controller = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+  const timeout = controller ? window.setTimeout(() => controller.abort(), 8000) : null;
+  try {
+    const request = { method: 'POST', headers: { apikey: config.key, Authorization: `Bearer ${token}` } };
+    if (controller) request.signal = controller.signal;
+    const response = await fetch(`${config.url}/auth/v1/logout?scope=local`, request);
+    if (!response.ok && response.status !== 401 && response.status !== 403) throw new Error('Logout unavailable');
+  } catch (error) {
+    if (generation === syncState.generation && !syncState.session) {
+      renderSyncStatus('Logged out of this browser. The server could not be reached to end the session.', 'error');
+    }
+  } finally { if (timeout !== null) window.clearTimeout(timeout); }
+}
+
+function signOut(options) {
+  syncState.generation += 1;
+  if (syncState.queueTimer) window.clearTimeout(syncState.queueTimer);
+  syncState.queueTimer = null;
+  syncState.pending = false;
+  resetSignupAcknowledgement();
   stopSyncPolling();
   syncState.session = null;
+  if (els.syncPassword) els.syncPassword.value = '';
+  householdDeletion = null;
+  closeDialog(accountElement('deleteHouseholdDialog'));
+  accountElement('deleteHouseholdPhrase').value = '';
   localStorage.removeItem(SYNC_SESSION_KEY);
   householdState.households = [];
   householdState.invitations = [];
@@ -1895,20 +2412,37 @@ function signOut() {
   platformAdminState.households = [];
   platformAdminState.loaded = false;
   saveHouseholdSelection();
+  activatePlannerScope('', Boolean(options && options.discardPlanner));
   renderPlatformAdminUI();
   renderHouseholdUI();
-  renderSyncStatus('Signed out. Local planner data is still available.');
+  renderSyncStatus('Logged out. Sign in to open your household planner.');
 }
 
 function setSyncSession(response) {
+  const previousUserId = syncState.session && syncState.session.user && syncState.session.user.id;
   syncState.session = {
     access_token: response.access_token,
     refresh_token: response.refresh_token,
     expires_in: response.expires_in,
     expires_at: Math.floor(Date.now() / 1000) + Number(response.expires_in || 3600),
     user: response.user,
+    device_generation: storageGeneration,
   };
   localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify(syncState.session));
+  if (previousUserId !== syncState.session.user.id) {
+    syncState.generation += 1;
+    householdState.households = [];
+    householdState.invitations = [];
+    householdState.members = [];
+    householdState.membersHouseholdId = '';
+    householdState.loaded = false;
+    householdState.selectedHouseholdId = loadHouseholdSelection();
+    platformAdminState.isAdmin = false;
+    platformAdminState.households = [];
+    platformAdminState.loaded = false;
+    renderPlatformAdminUI();
+    activatePlannerScope(plannerScopeFor(syncState.session, householdState.selectedHouseholdId));
+  }
 }
 
 function startSyncPolling() {
@@ -1922,11 +2456,12 @@ function stopSyncPolling() {
 }
 
 function renderSyncStatus(message, type) {
+  renderAuthControls();
   if (!els.syncStatus) return;
   if (message) els.syncStatus.textContent = message;
   else if (!syncState.config.url || !syncState.config.key) els.syncStatus.textContent = 'Cloud sync is not connected.';
   else if (syncState.session) els.syncStatus.textContent = 'Connected. Syncing automatically.';
-  else if (!IS_DEVELOPMENT_HOST) els.syncStatus.textContent = 'Sign in to your Homeboard account.';
+  else if (!MANUAL_SYNC_CONFIG_ALLOWED) els.syncStatus.textContent = 'Sign in to your Homeboard account.';
   else els.syncStatus.textContent = 'Connection saved. Sign in below.';
   els.syncStatus.className = `sync-status${type ? ` ${type}` : syncState.session ? ' connected' : ''}`;
 }
@@ -1936,7 +2471,9 @@ function setSyncStatus(message, type) {
 }
 
 function renderHouseholdUI() {
+  renderCustomerFeatures();
   if (!HOUSEHOLD_UI_ENABLED || !els.householdSection) return;
+  const invitations = syncInvitationContext();
   const signedIn = Boolean(syncState.session);
   if (els.householdAuthStatus) {
     els.householdAuthStatus.textContent = signedIn
@@ -1952,10 +2489,9 @@ function renderHouseholdUI() {
 
   const households = householdState.households || [];
   const selected = getSelectedHousehold();
-  if (!households.some((household) => household.household_id === householdState.selectedHouseholdId)) {
-    householdState.selectedHouseholdId = households[0] ? households[0].household_id : '';
-    saveHouseholdSelection();
-  }
+  accountElement('firstHouseholdExamplesHint').hidden = !householdState.loaded || households.length > 0;
+  accountElement('householdOptions').hidden = !selected || selected.role !== 'owner';
+  accountElement('deleteHouseholdButton').disabled = householdState.loading || householdDeleteBusy || accountBusy;
   if (els.householdSelect) {
     els.householdSelect.hidden = !households.length;
     els.householdSelect.innerHTML = households.map((household) => `
@@ -1963,10 +2499,11 @@ function renderHouseholdUI() {
         ${escapeHtml(household.household_name)} · ${escapeHtml(household.role)}
       </option>
     `).join('');
-    els.householdSelect.disabled = householdState.loading || !households.length;
+    els.householdSelect.disabled = householdState.loading || invitations.busy || !households.length;
   }
   if (els.createHouseholdButton) els.createHouseholdButton.disabled = householdState.loading;
-  if (els.createInvitationButton) els.createInvitationButton.disabled = householdState.loading || !selected || selected.role !== 'owner';
+  if (els.createInvitationButton) els.createInvitationButton.disabled = householdState.loading || invitations.busy || !selected || selected.role !== 'owner';
+  if (els.copyInvitationButton) els.copyInvitationButton.disabled = invitations.busy;
   if (els.acceptInvitationButton) els.acceptInvitationButton.disabled = householdState.loading;
   if (els.householdInvitePanel) els.householdInvitePanel.hidden = !selected || selected.role !== 'owner';
   if (els.householdRenamePanel) els.householdRenamePanel.hidden = !selected || selected.role !== 'owner';
@@ -1983,54 +2520,209 @@ function getSelectedHousehold() {
   return (householdState.households || []).find((household) => household.household_id === householdState.selectedHouseholdId) || null;
 }
 
+function reviewHouseholdDeletion() {
+  const selected = getSelectedHousehold();
+  if (!selected || selected.role !== 'owner' || !syncState.session || householdDeleteBusy || accountBusy) return;
+  householdDeletion = { id: selected.household_id, name: selected.household_name, generation: syncState.generation };
+  accountElement('deleteHouseholdName').textContent = selected.household_name;
+  accountElement('deleteHouseholdPhrase').value = '';
+  accountElement('deleteHouseholdStatus').textContent = 'Your account and other households will stay available.';
+  renderHouseholdDeletionControls();
+  openDialog(accountElement('deleteHouseholdDialog'));
+  accountElement('cancelDeleteHouseholdButton').focus();
+}
+
+function renderHouseholdDeletionControls() {
+  const selected = getSelectedHousehold();
+  accountElement('confirmDeleteHouseholdButton').disabled = householdDeleteBusy || !householdDeletion
+    || !syncState.session || householdDeletion.generation !== syncState.generation
+    || !selected || selected.household_id !== householdDeletion.id || selected.role !== 'owner'
+    || accountElement('deleteHouseholdPhrase').value !== householdDeletion.name;
+  ['deleteHouseholdPhrase', 'closeDeleteHouseholdButton', 'cancelDeleteHouseholdButton'].forEach(id => {
+    accountElement(id).disabled = householdDeleteBusy;
+  });
+}
+
+function cancelHouseholdDeletion() {
+  if (householdDeleteBusy) return;
+  householdDeletion = null;
+  accountElement('deleteHouseholdPhrase').value = '';
+  closeDialog(accountElement('deleteHouseholdDialog'));
+}
+
+async function deleteHouseholdFromUI(event) {
+  event.preventDefault();
+  renderHouseholdDeletionControls();
+  if (accountElement('confirmDeleteHouseholdButton').disabled) return;
+  const review = { ...householdDeletion };
+  householdDeleteBusy = true;
+  plannerGeneration += 1; // Ignore cloud reads begun before confirmation.
+  renderHouseholdDeletionControls();
+  renderAuthControls();
+  accountElement('deleteHouseholdStatus').textContent = 'Deleting household…';
+  try {
+    const deleted = await householdRpc('delete_my_household', {
+      target_household_id: review.id, confirmed_household_name: accountElement('deleteHouseholdPhrase').value,
+    });
+    if (review.generation !== syncState.generation) return;
+    if (deleted !== true) throw new Error('Deletion could not be confirmed. Refresh Household settings before trying again.');
+    householdDeleteBusy = false;
+    await applyHouseholdDeletion(review.id, true);
+  } catch (error) {
+    if (review.generation !== syncState.generation) return;
+    accountElement('deleteHouseholdStatus').textContent = /schema cache|does not exist|404/i.test(error.message || '')
+      ? 'Household deletion is not available yet. Please try again later.'
+      : /Failed to fetch|NetworkError/i.test(error.message || '')
+        ? 'The connection was interrupted. Refresh Household settings to check whether deletion completed before trying again.'
+        : error.message || 'Deletion could not be confirmed. Refresh Household settings before trying again.';
+  } finally {
+    householdDeleteBusy = false;
+    renderHouseholdDeletionControls();
+    renderAuthControls();
+    renderHouseholdUI();
+  }
+}
+
+function deletedHouseholdKey(project, householdId) {
+  return HOUSEHOLD_DELETED_KEY + encodeURIComponent(JSON.stringify([project, householdId]));
+}
+
+function scopeMatchesHousehold(scope, project, householdId) {
+  try {
+    const parts = JSON.parse(decodeURIComponent(scope));
+    return parts[0] === project && parts[2] === householdId;
+  } catch (error) { return false; }
+}
+
+function isDeletedPlannerScope(scope) {
+  if (!scope) return false;
+  try {
+    const parts = JSON.parse(decodeURIComponent(scope));
+    return Boolean(parts[2] && localStorage.getItem(deletedHouseholdKey(parts[0], parts[2])));
+  } catch (error) { return false; }
+}
+
+async function applyHouseholdDeletion(householdId, broadcast = false) {
+  const project = syncState.config.url;
+  let cacheCleared = true;
+  try {
+    if (broadcast) localStorage.setItem(deletedHouseholdKey(project, householdId), JSON.stringify({ project, householdId, at: Date.now() }));
+    // Remove only this household's copies, including caches from another
+    // account on the same browser. The marker prevents delayed recovery/writes.
+    Object.keys(localStorage).forEach(key => {
+      const prefix = [STORAGE_KEY, BACKUP_STORAGE_KEY].map(base => `${base}:scope:`).find(base => key.startsWith(base));
+      if (prefix && scopeMatchesHousehold(key.slice(prefix.length), project, householdId)) localStorage.removeItem(key);
+    });
+  } catch (error) { cacheCleared = false; }
+  syncState.generation += 1;
+  const generation = syncState.generation;
+  householdState.households = householdState.households.filter(home => home.household_id !== householdId);
+  if (householdState.selectedHouseholdId === householdId) {
+    householdState.selectedHouseholdId = householdState.households.length ? householdState.households[0].household_id : '';
+    householdState.members = [];
+    householdState.membersHouseholdId = '';
+    householdState.invitations = [];
+    if (els.invitationLinkInput) els.invitationLinkInput.value = '';
+    saveHouseholdSelection();
+    activatePlannerScope(plannerScopeFor(syncState.session, householdState.selectedHouseholdId), true);
+  }
+  householdState.loaded = false;
+  householdDeletion = null;
+  accountElement('deleteHouseholdPhrase').value = '';
+  closeDialog(accountElement('deleteHouseholdDialog'));
+  renderHouseholdUI();
+  await new Promise(resolve => {
+    const timeout = window.setTimeout(() => { cacheCleared = false; resolve(); }, 3000);
+    const finish = () => { window.clearTimeout(timeout); resolve(); };
+    openPlannerDatabase(database => {
+      try {
+        const tx = database.transaction([IDB_STORE], 'readwrite');
+        const request = tx.objectStore(IDB_STORE).openCursor();
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          const key = String(cursor.key);
+          if (key.startsWith('scope:') && scopeMatchesHousehold(key.slice(6), project, householdId)) cursor.delete();
+          cursor.continue();
+        };
+        tx.oncomplete = () => { database.close(); finish(); };
+        tx.onabort = tx.onerror = () => { cacheCleared = false; database.close(); finish(); };
+      } catch (error) { cacheCleared = false; database.close(); finish(); }
+    }, () => { cacheCleared = false; finish(); });
+  });
+  if (generation !== syncState.generation) return;
+  await loadHouseholds(true);
+  if (generation !== syncState.generation) return;
+  await syncNow(false);
+  if (generation !== syncState.generation) return;
+  setHouseholdStatus(cacheCleared
+    ? 'Household deleted. Your account and other households have been kept.'
+    : 'Household deleted. Some saved browser copies could not be cleared. Clear this site’s browser data on this device.', cacheCleared ? 'connected' : 'error');
+}
+
 function setHouseholdStatus(message, type) {
   if (!els.householdStatus) return;
   els.householdStatus.textContent = message || '';
   els.householdStatus.className = `sync-status${type ? ` ${type}` : ''}`;
 }
 
-async function loadHouseholds(force = false) {
+async function loadHouseholds(force = false, preferredHouseholdId = '') {
+  if (householdDeleteBusy) return householdState.households;
   if (!HOUSEHOLD_UI_ENABLED || !syncState.session || !syncState.config.url || !syncState.config.key) {
     renderHouseholdUI();
     return;
   }
-  if (householdLoadPromise) return householdLoadPromise;
+  const generation = syncState.generation;
+  if (householdLoadPromise && householdLoadGeneration === generation) return householdLoadPromise;
   if (householdState.loaded && !force) return householdState.households;
   householdState.loading = true;
   renderHouseholdUI();
-  householdLoadPromise = (async () => {
+  householdLoadGeneration = generation;
+  const request = (async () => {
     try {
       const rows = await householdRpc('list_my_households', {});
+      if (generation !== syncState.generation || !syncState.session || householdDeleteBusy) return [];
+      if (!Array.isArray(rows)) throw new Error('The household list is unavailable.');
       householdState.households = Array.isArray(rows) ? rows : [];
+      const activationHousehold = new URLSearchParams(location.search).get('household');
+      if (!preferredHouseholdId && activationHousehold && rows.some(row => row.household_id === activationHousehold)) preferredHouseholdId = activationHousehold;
+      if (preferredHouseholdId) {
+        if (!rows.some(household => household.household_id === preferredHouseholdId)) throw new Error('The household is not available yet.');
+        householdState.selectedHouseholdId = preferredHouseholdId;
+      }
       if (!householdState.households.some((household) => household.household_id === householdState.selectedHouseholdId)) {
         householdState.selectedHouseholdId = householdState.households[0] ? householdState.households[0].household_id : '';
-        saveHouseholdSelection();
       }
+      saveHouseholdSelection();
+      activatePlannerScope(plannerScopeFor(syncState.session, householdState.selectedHouseholdId));
       householdState.invitations = [];
       await loadHouseholdMembers();
       await loadHouseholdInvitations();
+      if (generation !== syncState.generation || !syncState.session) return [];
       householdState.loaded = true;
       setHouseholdStatus(householdState.households.length ? 'Household account ready.' : 'Create your household or join one with an invitation.', 'connected');
       return householdState.households;
     } catch (error) {
-      householdState.households = [];
-      householdState.invitations = [];
-      householdState.members = [];
-      householdState.membersHouseholdId = '';
-      householdState.loaded = true;
-      setHouseholdStatus(IS_DEVELOPMENT_HOST
+      if (generation !== syncState.generation || !syncState.session) return [];
+      // A failed membership lookup must never reroute a shared board into
+      // private account storage. Keep its cache and retry before syncing.
+      householdState.loaded = false;
+      setHouseholdStatus(MANUAL_SYNC_CONFIG_ALLOWED
         ? 'Run household-invitations-setup.sql in Homeboard Development, then refresh this screen.'
         : 'The household service is not enabled yet. Please try again later.', 'error');
       return [];
     } finally {
-      householdState.loading = false;
-      renderHouseholdUI();
+      if (generation === syncState.generation) {
+        householdState.loading = false;
+        renderHouseholdUI();
+      }
     }
   })();
+  householdLoadPromise = request;
   try {
-    return await householdLoadPromise;
+    return await request;
   } finally {
-    householdLoadPromise = null;
+    if (householdLoadPromise === request) householdLoadPromise = null;
   }
 }
 
@@ -2099,9 +2791,11 @@ async function loadPlatformAdminUI(force = false) {
     return;
   }
   if (platformAdminState.loading || (platformAdminState.loaded && !force)) return;
+  const generation = syncState.generation;
   platformAdminState.loading = true;
   try {
     const result = await householdRpc('is_platform_admin', {});
+    if (generation !== syncState.generation) return;
     const isAdmin = result === true
       || result === 'true'
       || (Array.isArray(result) && result[0] === true)
@@ -2110,6 +2804,13 @@ async function loadPlatformAdminUI(force = false) {
     platformAdminState.households = isAdmin
       ? (await householdRpc('list_platform_households', {})) || []
       : [];
+    if (generation !== syncState.generation) return;
+    if (isAdmin) {
+      const accessRows = await householdRpc('list_platform_household_access', {});
+      if (generation !== syncState.generation) return;
+      platformAdminState.households = platformAdminState.households.map(household => Object.assign({}, household,
+        (Array.isArray(accessRows) ? accessRows : []).find(row => row.household_id === household.household_id) || {}));
+    }
     platformAdminState.loaded = true;
     if (isAdmin) setPlatformAdminStatus('Platform administrator access enabled.', 'connected');
   } catch (error) {
@@ -2144,12 +2845,19 @@ function renderPlatformAdminUI() {
     const memberCount = Number(household.member_count) || 0;
     return `<div class="platform-admin-row">
       <div><strong>${escapeHtml(household.household_name)}</strong><span>${memberCount} member${memberCount === 1 ? '' : 's'} · created ${escapeHtml(formatLongDate(new Date(household.created_at)))}</span></div>
+      <div><span>${household.expires_at ? 'Access until '+escapeHtml(formatLongDate(new Date(household.expires_at))) : ''}</span>${household.renewal_requested ? '<strong>Renewal requested</strong>' : ''}</div>
+      <button class="secondary-button" type="button" data-admin-action="renew" data-household-id="${escapeAttribute(household.household_id)}">Approve 6-month pass</button>
       <button class="danger-button" type="button" data-admin-action="delete" data-household-id="${escapeAttribute(household.household_id)}">Delete</button>
     </div>`;
   }).join('');
 }
 
 async function handlePlatformAdminListClick(event) {
+  const renewButton = event.target.closest('[data-admin-action="renew"]');
+  if (renewButton) {
+    if (window.confirm('Approve a new household pass and email its activation code to the owner?')) await approveHouseholdRenewal(renewButton.dataset.householdId);
+    return;
+  }
   const button = event.target.closest('[data-admin-action="delete"]');
   if (!button) return;
   const household = platformAdminState.households.find((item) => item.household_id === button.dataset.householdId);
@@ -2176,39 +2884,100 @@ async function handlePlatformAdminListClick(event) {
 }
 
 async function loadHouseholdInvitations() {
-  const selected = getSelectedHousehold();
-  if (!selected || selected.role !== 'owner') {
-    householdState.invitations = [];
-    renderInvitationList();
-    return;
-  }
-  try {
-    const rows = await householdRpc('list_household_invitations', { target_household_id: selected.household_id });
-    householdState.invitations = Array.isArray(rows) ? rows : [];
-  } catch (error) {
-    householdState.invitations = [];
-  }
+  const context = syncInvitationContext();
+  if (!context.householdId) return;
+  const requestId = ++context.requestId;
+  context.loading = true;
+  context.error = false;
   renderInvitationList();
+  try {
+    const rows = await householdRpc('list_household_invitations', { target_household_id: context.householdId });
+    if (syncInvitationContext() !== context || context.requestId !== requestId) return;
+    if (!Array.isArray(rows)) throw new Error('Invitation list unavailable');
+    householdState.invitations = Array.isArray(rows) ? rows : [];
+    if (context.link) {
+      const current = rows.find(item => item.invitation_id === context.link.id);
+      if (!current || invitationStatus(current) !== 'Pending' || current.expires_at !== context.link.expiresAt) clearInvitationLink();
+    }
+  } catch (error) {
+    if (syncInvitationContext() !== context || context.requestId !== requestId) return;
+    householdState.invitations = [];
+    context.error = true;
+  } finally {
+    if (syncInvitationContext() === context && context.requestId === requestId) {
+      context.loading = false;
+      renderInvitationList();
+    }
+  }
+}
+
+// Invitation responses and freshly generated links belong to one owner/session.
+// A late request must never populate another household or a later sign-in.
+function syncInvitationContext() {
+  const selected = getSelectedHousehold();
+  const householdId = syncState.session && selected && selected.role === 'owner' ? selected.household_id : '';
+  if (!invitationState || invitationState.householdId !== householdId || invitationState.generation !== syncState.generation) {
+    invitationState = { householdId, generation: syncState.generation, requestId: 0, loading: false, error: false, busy: false, link: null };
+    householdState.invitations = [];
+    clearInvitationLink();
+  }
+  return invitationState;
+}
+
+function clearInvitationLink() {
+  if (invitationState) invitationState.link = null;
+  if (els.invitationLinkInput) els.invitationLinkInput.value = '';
+  if (els.invitationLinkBox) els.invitationLinkBox.hidden = true;
+  const recipient = accountElement('invitationLinkRecipient');
+  if (recipient) recipient.textContent = '';
+}
+
+function invitationStatus(invitation) {
+  return invitation.accepted_at ? 'Accepted' : invitation.revoked_at ? 'Revoked' : new Date(invitation.expires_at) <= new Date() ? 'Expired' : 'Pending';
 }
 
 function renderInvitationList() {
   if (!els.invitationList) return;
+  const context = syncInvitationContext();
+  if (!context.householdId) {
+    els.invitationList.innerHTML = '';
+    return;
+  }
+  if (context.error) {
+    els.invitationList.innerHTML = '<p class="household-empty">Invitations could not be loaded. <button type="button" class="subtle-button" data-invitation-action="refresh">Try again</button></p>';
+    return;
+  }
+  if (context.loading) {
+    els.invitationList.innerHTML = '<p class="household-empty">Loading invitations…</p>';
+    return;
+  }
   if (!householdState.invitations.length) {
     els.invitationList.innerHTML = '<p class="household-empty">No invitations yet.</p>';
     return;
   }
   els.invitationList.innerHTML = householdState.invitations.map((invitation) => {
-    const status = invitation.accepted_at ? 'Accepted' : invitation.revoked_at ? 'Revoked' : new Date(invitation.expires_at) <= new Date() ? 'Expired' : 'Pending';
-    const canRevoke = status === 'Pending';
+    const status = invitationStatus(invitation);
+    const date = invitation.accepted_at || invitation.revoked_at || invitation.expires_at;
+    const label = status === 'Accepted' ? 'Accepted · joined' : status === 'Revoked' ? 'Revoked' : status === 'Expired' ? 'Expired' : 'Pending · expires';
+    const disabled = context.busy || householdState.loading ? 'disabled' : '';
+    const action = (name, text) => `<button class="subtle-button" type="button" data-invitation-action="${name}" data-invitation-id="${escapeAttribute(invitation.invitation_id)}" ${disabled}>${text}</button>`;
     return `<div class="invitation-row">
-      <div><strong>${escapeHtml(invitation.invited_email)}</strong><span>${status} · expires ${escapeHtml(formatLongDate(new Date(invitation.expires_at)))}</span></div>
-      ${canRevoke ? `<button class="subtle-button" type="button" data-invitation-action="revoke" data-invitation-id="${escapeAttribute(invitation.invitation_id)}">Revoke</button>` : ''}
+      <div class="invitation-details"><strong>${escapeHtml(invitation.invited_email)}</strong><span>${label} ${escapeHtml(formatLongDate(new Date(date)))}</span></div>
+      <div class="invitation-actions">${status === 'Pending' || status === 'Expired' ? action('renew', 'Renew link') : ''}${status === 'Pending' ? action('revoke', 'Revoke') : ''}</div>
     </div>`;
   }).join('');
 }
 
 async function createHouseholdFromUI() {
+  if (!syncState.session || householdState.loading) return;
+  const generation = syncState.generation;
+  const firstHousehold = householdState.loaded && householdState.households.length === 0;
   const name = String(els.householdNameInput && els.householdNameInput.value || '').trim();
+  const peopleInput = accountElement('newHouseholdPeople');
+  const names = peopleInput.value.split('\n').map(value => value.trim()).filter(Boolean);
+  if (names.length > 12 || names.some(value => value.length > 60)) {
+    setHouseholdStatus('Enter up to 12 names, each up to 60 characters.', 'error'); return;
+  }
   if (!name) {
     setHouseholdStatus('Enter a household name first.', 'error');
     return;
@@ -2216,15 +2985,54 @@ async function createHouseholdFromUI() {
   try {
     householdState.loading = true;
     renderHouseholdUI();
-    await householdRpc('create_household', { household_name: name });
+    const householdId = await householdRpc('create_household', { household_name: name });
+    if (generation !== syncState.generation) return;
     els.householdNameInput.value = '';
-    await loadHouseholds(true);
-    setHouseholdStatus('Household created. You can now invite your partner.', 'connected');
+    peopleInput.value = '';
+    if (householdLoadPromise) await householdLoadPromise;
+    await loadHouseholds(true, householdId);
+    if (generation !== syncState.generation) return;
+    if (!householdState.loaded) throw new Error('Household created. Refresh Household settings to open it.');
+    if (householdState.selectedHouseholdId !== householdId) return;
+    const examplesAdded = firstHousehold && !state.data.tasks.length;
+    if (names.length) state.data.profile = { members:names.map((person,index) => ({ id:index === 0 ? 'me' : index === 1 ? 'partner' : 'member-'+createId(),name:person })), updatedAt:nowIso() };
+    if (examplesAdded) {
+      state.data.tasks = createExampleTasks();
+      state.weekStart = startOfWeek(new Date());
+      persist({ sync: false });
+      render();
+    }
+    if (names.length) { persist({sync:false}); render(); }
+    await refreshHouseholdAccess();
+    await syncNow(false);
+    if (generation !== syncState.generation) return;
+    if (!plannerIsWritable()) {
+      accountElement('householdAccessOptions').open=true;
+      setHouseholdStatus('Household ready. Next, get your free launch pass below, activate it from your email, then invite the other members.', 'connected');
+      return;
+    }
+    setHouseholdStatus(examplesAdded
+      ? 'Household created with two example tasks. Edit or delete them to make this planner yours.'
+      : 'Household created. You can now invite your partner.', 'connected');
   } catch (error) {
     setHouseholdStatus(error.message || 'The household could not be created.', 'error');
     householdState.loading = false;
     renderHouseholdUI();
   }
+}
+
+function createExampleTasks() {
+  const week = startOfWeek(new Date());
+  const weekKey = dateKey(week);
+  const sunday = dateKey(addDays(week, 6));
+  const common = { assignee: 'both', kind: 'task', recurrence: 'weekly', reminder: 'none',
+    recurrenceStartWeek: weekKey, updatedAt: nowIso() };
+  return [
+    Object.assign({}, common, { id: createId(), title: 'Example: Weekly tidy-up', anyDay: true,
+      anyDayDate: weekKey, nextAnyDayDate: weekKey, recurrenceStartDate: weekKey, startTime: '', endTime: '' }),
+    Object.assign({}, common, { id: createId(), title: 'Example: Plan next week', anyDay: false,
+      date: sunday, recurrenceStartDate: sunday, startTime: '18:00', endTime: '18:15' }),
+  ];
 }
 
 async function renameHouseholdFromUI() {
@@ -2257,6 +3065,7 @@ async function renameHouseholdFromUI() {
 }
 
 async function createInvitationFromUI() {
+  if (!syncState.session || householdState.loading || syncInvitationContext().busy) return;
   const selected = getSelectedHousehold();
   const email = String(els.inviteEmailInput && els.inviteEmailInput.value || '').trim();
   if (!selected || selected.role !== 'owner') {
@@ -2267,29 +3076,9 @@ async function createInvitationFromUI() {
     setHouseholdStatus('Enter your partner’s email address first.', 'error');
     return;
   }
-  try {
-    householdState.loading = true;
-    renderHouseholdUI();
-    const result = await householdRpc('create_household_invitation', {
-      target_household_id: selected.household_id,
-      target_email: email,
-      ttl_hours: 168,
-    });
-    const invitation = Array.isArray(result) ? result[0] : result;
-    if (!invitation || !invitation.token) throw new Error('The invitation was created without a token. Please try again.');
-    const link = new URL(window.location.href);
-    link.searchParams.set('invite', invitation.token);
-    els.invitationLinkInput.value = link.toString();
-    els.invitationLinkBox.hidden = false;
-    els.inviteEmailInput.value = '';
-    await loadHouseholdInvitations();
-    setHouseholdStatus('Invitation created. Copy the link and send it to your partner.', 'connected');
-  } catch (error) {
-    setHouseholdStatus(error.message || 'The invitation could not be created.', 'error');
-  } finally {
-    householdState.loading = false;
-    renderHouseholdUI();
-  }
+  await mutateInvitation('create_household_invitation', {
+    target_household_id: selected.household_id, target_email: email, ttl_hours: 168,
+  }, 'Invitation created. Copy the link and send it to your partner.');
 }
 
 async function acceptInvitationFromUI() {
@@ -2307,9 +3096,15 @@ async function acceptInvitationFromUI() {
   try {
     householdState.loading = true;
     renderHouseholdUI();
-    await householdRpc('accept_household_invitation', { raw_token: token });
+    const code = token.replace(/[ -]/g, '');
+    const joined = /^[a-f0-9]{16}$/i.test(code)
+      ? await householdRpc('accept_household_code', { invitation_code: code })
+      : await householdRpc('accept_household_invitation', { raw_token: token });
     els.inviteTokenInput.value = '';
-    await loadHouseholds(true);
+    if (householdLoadPromise) await householdLoadPromise;
+    await loadHouseholds(true, joined && joined[0] && joined[0].household_id);
+    if (!householdState.loaded) throw new Error('Invitation accepted. Refresh Household settings to open it.');
+    await syncNow(false);
     setHouseholdStatus('Invitation accepted. You joined the household.', 'connected');
   } catch (error) {
     setHouseholdStatus(error.message || 'The invitation could not be accepted.', 'error');
@@ -2320,19 +3115,74 @@ async function acceptInvitationFromUI() {
 }
 
 async function handleInvitationListClick(event) {
-  const button = event.target.closest('[data-invitation-action="revoke"]');
-  if (!button) return;
-  try {
-    householdState.loading = true;
-    renderHouseholdUI();
-    await householdRpc('revoke_household_invitation', { target_invitation_id: button.dataset.invitationId });
+  const button = event.target.closest('[data-invitation-action]');
+  const context = syncInvitationContext();
+  if (!button || button.disabled || !context.householdId || context.busy || householdState.loading) return;
+  const action = button.dataset.invitationAction;
+  if (action === 'refresh') {
     await loadHouseholdInvitations();
-    setHouseholdStatus('Invitation revoked.', 'connected');
+    return;
+  }
+  const invitation = householdState.invitations.find(item => item.invitation_id === button.dataset.invitationId);
+  if (!invitation || context.loading || context.error) return;
+  const status = invitationStatus(invitation);
+  if (action === 'renew' && (status === 'Pending' || status === 'Expired')) {
+    if (!window.confirm(`Create a new invitation link for ${invitation.invited_email}? The old link will stop working.`)) return;
+    await mutateInvitation('renew_household_invitation', { target_invitation_id: invitation.invitation_id },
+      'New link ready for 7 days. The old link no longer works. Copy this link and send it to your partner.');
+  } else if (action === 'revoke' && status === 'Pending') {
+    if (!window.confirm(`Revoke the invitation for ${invitation.invited_email}? They will no longer be able to join with this link.`)) return;
+    await mutateInvitation('revoke_household_invitation', { target_invitation_id: invitation.invitation_id }, 'Invitation revoked. Its link no longer works.');
+  }
+}
+
+async function mutateInvitation(functionName, body, successMessage) {
+  const context = syncInvitationContext();
+  if (!context.householdId || context.busy) return;
+  context.busy = true;
+  clearInvitationLink();
+  renderHouseholdUI();
+  try {
+    let deliveryMessage = '';
+    let result;
+    if (functionName !== 'revoke_household_invitation' && accountElement('emailInvitation').checked) {
+      const session = await ensureSyncSession();
+      const delivery = await syncRequest('/functions/v1/household-email', { method: 'POST', body: {
+        action: functionName === 'create_household_invitation' ? 'invite' : 'renew', household_id: context.householdId,
+        email: body.target_email, invitation_id: body.target_invitation_id, request_id: createId(),
+      } }, session.access_token);
+      result = delivery.invitation;
+      deliveryMessage = delivery.message;
+    } else result = await householdRpc(functionName, body);
+    if (syncInvitationContext() !== context) return;
+    if (functionName !== 'revoke_household_invitation') {
+      const invitation = Array.isArray(result) ? result[0] : result;
+      if (!invitation || !invitation.token) throw new Error('No invitation link was returned. Refresh the list before trying again.');
+      const link = new URL(window.location.pathname, window.location.origin);
+      link.searchParams.set('invite', invitation.token);
+      context.link = { id: invitation.invitation_id, expiresAt: invitation.expires_at };
+      els.invitationLinkInput.value = link.toString();
+      els.invitationLinkBox.hidden = false;
+      accountElement('invitationLinkRecipient').textContent = deliveryMessage
+        ? `${deliveryMessage}${invitation.code ? ' Code: '+invitation.code : ''}`
+        : `Send this link to ${invitation.invited_email}. No email has been sent automatically.`;
+      if (functionName === 'create_household_invitation') els.inviteEmailInput.value = '';
+    }
+    await loadHouseholdInvitations();
+    if (syncInvitationContext() === context) setHouseholdStatus(deliveryMessage || successMessage, 'connected');
   } catch (error) {
-    setHouseholdStatus(error.message || 'The invitation could not be revoked.', 'error');
+    if (syncInvitationContext() !== context) return;
+    const message = error.message || '';
+    setHouseholdStatus(/schema cache|does not exist|404/i.test(message)
+      ? 'This invitation feature is not available yet. Please try again later.'
+      : /Failed to fetch|NetworkError/i.test(message)
+        ? 'The invitation could not be confirmed. Refresh the list before trying again.'
+        : message || 'The invitation could not be updated.', 'error');
   } finally {
-    householdState.loading = false;
-    renderHouseholdUI();
+    if (syncInvitationContext() === context) {
+      context.busy = false;
+      renderHouseholdUI();
+    }
   }
 }
 
@@ -2400,6 +3250,8 @@ async function handleHouseholdMemberListClick(event) {
 }
 
 async function copyInvitationLink() {
+  const context = syncInvitationContext();
+  if (!context.householdId || context.busy || !context.link) return;
   const value = String(els.invitationLinkInput && els.invitationLinkInput.value || '');
   if (!value) return;
   try {
@@ -2407,10 +3259,11 @@ async function copyInvitationLink() {
     else {
       els.invitationLinkInput.focus();
       els.invitationLinkInput.select();
-      document.execCommand('copy');
+      if (!document.execCommand('copy')) throw new Error('Manual copy required');
     }
-    setHouseholdStatus('Invitation link copied.', 'connected');
+    if (syncInvitationContext() === context) setHouseholdStatus('Invitation link copied. Send it to your partner.', 'connected');
   } catch (error) {
+    if (syncInvitationContext() !== context) return;
     els.invitationLinkInput.focus();
     els.invitationLinkInput.select();
     setHouseholdStatus('Select the link and copy it manually.', 'error');
@@ -2418,12 +3271,16 @@ async function copyInvitationLink() {
 }
 
 async function householdRpc(functionName, body) {
+  const generation = syncState.generation;
   const session = await ensureSyncSession();
+  if (generation !== syncState.generation) throw new Error('This account session has changed.');
   if (!session) throw new Error('Sign in to manage your household.');
   return syncRequest(`/rest/v1/rpc/${functionName}`, { method: 'POST', body }, session.access_token);
 }
 
-async function syncNow(manual) {
+async function syncNow(manual, authenticatedNow) {
+  if (syncState.deleting || householdDeleteBusy || (syncState.authenticating && !authenticatedNow) || storageGeneration !== readStorageGeneration()) return;
+  const generation = syncState.generation;
   if (!syncState.config.url || !syncState.config.key) {
     if (manual) setSyncStatus('Save the Supabase connection first.', 'error');
     return;
@@ -2437,24 +3294,36 @@ async function syncNow(manual) {
     return;
   }
   syncState.busy = true;
+  let syncingPlannerGeneration = null;
   if (manual) setSyncStatus('Syncing…');
   try {
     const session = await ensureSyncSession();
     if (!session) throw new Error('Your session expired. Please sign in again.');
     const household = await ensureSelectedHouseholdForSync();
+    if (generation !== syncState.generation || syncState.deleting) return;
+    const scope = plannerScopeFor(session, household && household.household_id);
+    if (scope !== activePlannerScope) activatePlannerScope(scope);
+    syncingPlannerGeneration = plannerGeneration;
+    await plannerRecoveryPromise;
+    if (generation !== syncState.generation || syncingPlannerGeneration !== plannerGeneration || syncState.deleting) return;
     const remote = await fetchRemoteData(session, household);
+    if (generation !== syncState.generation || syncingPlannerGeneration !== plannerGeneration || syncState.deleting) return;
+    if (household && !MANUAL_SYNC_CONFIG_ALLOWED) await refreshHouseholdAccess();
+    if (generation !== syncState.generation || syncingPlannerGeneration !== plannerGeneration || syncState.deleting) return;
     const localBefore = JSON.stringify(state.data);
     const merged = remote ? mergePlannerData(state.data, remote) : state.data;
     const mergedSignature = JSON.stringify(merged);
-    if (mergedSignature !== localBefore) {
-      state.data = merged;
-      persist({ sync: false });
-      render();
-    }
-    if (!remote || JSON.stringify(remote) !== mergedSignature) await pushRemoteData(session, merged, household);
-    renderSyncStatus(household ? 'Connected. Shared household synced just now.' : 'Connected. Synced just now.', 'connected');
+    state.data = merged;
+    persist({ sync: false });
+    if (mergedSignature !== localBefore) render();
+    const writable = plannerIsWritable();
+    if (writable && (!remote || JSON.stringify(remote) !== mergedSignature)) await pushRemoteData(session, merged, household);
+    if (generation !== syncState.generation || syncingPlannerGeneration !== plannerGeneration || syncState.deleting) return;
+    renderSyncStatus(!writable ? 'Connected. Board refreshed; editing requires active household access.' : household ? 'Connected. Shared household synced just now.' : 'Connected. Synced just now.', 'connected');
+    return writable;
   } catch (error) {
-    if (/401|403|expired|invalid/i.test(error.message || '')) {
+    if (generation !== syncState.generation || (syncingPlannerGeneration !== null && syncingPlannerGeneration !== plannerGeneration) || syncState.deleting) return;
+    if (error.status === 401 || /session expired|invalid.*(token|jwt)/i.test(error.message || '')) {
       syncState.session = null;
       localStorage.removeItem(SYNC_SESSION_KEY);
       stopSyncPolling();
@@ -2462,7 +3331,7 @@ async function syncNow(manual) {
     setSyncStatus(error.message || 'Sync failed; local saving is still active.', 'error');
   } finally {
     syncState.busy = false;
-    if (syncState.pending) {
+    if (syncState.pending && !syncState.deleting && syncState.session) {
       syncState.pending = false;
       window.setTimeout(() => syncNow(false), 250);
     }
@@ -2472,6 +3341,7 @@ async function syncNow(manual) {
 async function ensureSelectedHouseholdForSync() {
   if (!HOUSEHOLD_UI_ENABLED || !syncState.session) return null;
   if (!householdState.loaded) await loadHouseholds();
+  if (!householdState.loaded) throw new Error('Households could not be loaded. Your saved planner has been kept; try syncing again.');
   return getSelectedHousehold();
 }
 
@@ -2480,7 +3350,9 @@ async function ensureSyncSession() {
   if (!session) return null;
   if (!session.expires_at || Date.now() < (Number(session.expires_at) * 1000) - 60000) return session;
   if (!session.refresh_token) return null;
+  const generation = syncState.generation;
   const response = await syncRequest('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token } });
+  if (generation !== syncState.generation || syncState.session !== session) return syncState.session;
   setSyncSession(response);
   return syncState.session;
 }
@@ -2489,12 +3361,14 @@ async function fetchRemoteData(session, household) {
   if (household) {
     const householdId = encodeURIComponent(household.household_id);
     const rows = await syncRequest(`/rest/v1/household_documents?household_id=eq.${householdId}&select=household_id,data,updated_at`, { method: 'GET' }, session.access_token);
-    const householdData = Array.isArray(rows) && rows.length ? normalizePlannerData(rows[0].data) : null;
+    if (!Array.isArray(rows) || !rows.length) throw new Error('This household planner is unavailable. Refresh Household settings and try again.');
+    const raw = rows[0].data;
+    // SQL creates an explicit empty JSON document. Empty is a valid board,
+    // never permission to import the previously open or private planner.
+    if (raw && typeof raw === 'object' && !Array.isArray(raw) && !Object.keys(raw).length) return createEmptyPlanner();
+    const householdData = normalizePlannerData(raw);
     if (householdData) return householdData;
-    // Preserve the existing pilot data when a household's new shared document
-    // has not been populated yet. The first successful push moves it to the
-    // household document; later syncs never write to planner_documents.
-    return fetchLegacyRemoteData(session);
+    throw new Error('This household planner could not be read. Its saved data has been kept.');
   }
   return fetchLegacyRemoteData(session);
 }
@@ -2524,6 +3398,10 @@ async function pushRemoteData(session, data, household) {
 }
 
 async function syncRequest(path, options, accessToken) {
+  if (IS_DEMO_HOST) throw new Error('The demo does not connect to household accounts.');
+  const generation = syncState.generation;
+  if (accessToken && (!syncState.session || accessToken !== syncState.session.access_token)) throw new Error('This account session has changed.');
+  if (syncState.deleting && path !== '/functions/v1/delete-account') throw new Error('Account deletion is in progress.');
   const headers = {
     apikey: syncState.config.key,
     'Content-Type': 'application/json',
@@ -2534,11 +3412,14 @@ async function syncRequest(path, options, accessToken) {
   if (options && options.body !== undefined) request.body = JSON.stringify(options.body);
   const response = await fetch(syncState.config.url + path, request);
   const text = await response.text();
+  if (generation !== syncState.generation || storageGeneration !== readStorageGeneration()) throw new Error('This account session has changed.');
   let result = null;
   try { result = text ? JSON.parse(text) : null; } catch (error) { result = null; }
   if (!response.ok) {
     const message = result && (result.msg || result.message || result.error_description || result.error) || `Cloud request failed (${response.status})`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
   return result;
 }
@@ -2550,20 +3431,23 @@ function mergePlannerData(local, remote) {
   if (localIsDemo && !remoteIsDemo) return remote;
   if (remoteIsDemo && !localIsDemo) return local;
   const deleted = mergeDeletedMaps(local.meta && local.meta.deleted, remote.meta && remote.meta.deleted);
-  return {
-    tasks: mergeItems(local.tasks, remote.tasks, deleted.tasks),
+  const merged = {
+    tasks: mergeItems(local.tasks, remote.tasks, deleted.tasks).map((task) => Object.assign({}, task)),
     todos: mergeItems(local.todos, remote.todos, deleted.todos),
     groceries: mergeItems(local.groceries, remote.groceries, deleted.groceries),
     completions: Object.assign({}, remote.completions || {}, local.completions || {}),
-    anyDayCompletions: mergeItems(local.anyDayCompletions || [], remote.anyDayCompletions || [], {}),
+    anyDayCompletions: mergeItems(local.anyDayCompletions || [], remote.anyDayCompletions || [], deleted.anyDayCompletions),
     daySettings: mergeDaySettings(local.daySettings, remote.daySettings),
-    meta: { demo: false, deleted },
+    profile: HomeboardPlanner.newerProfile(local.profile, remote.profile),
+    meta: Object.assign({}, remote.meta || {}, local.meta || {}, { demo: false, deleted }),
   };
+  reconcileAnyDayCompletions(merged);
+  return merged;
 }
 
 function mergeDeletedMaps(localDeleted, remoteDeleted) {
-  const result = { tasks: {}, todos: {}, groceries: {} };
-  ['tasks', 'todos', 'groceries'].forEach((listName) => {
+  const result = { tasks: {}, todos: {}, groceries: {}, anyDayCompletions: {} };
+  ['tasks', 'todos', 'groceries', 'anyDayCompletions'].forEach((listName) => {
     Object.assign(result[listName], (remoteDeleted && remoteDeleted[listName]) || {}, (localDeleted && localDeleted[listName]) || {});
     Object.keys((remoteDeleted && remoteDeleted[listName]) || {}).forEach((id) => {
       result[listName][id] = Math.max(Number((remoteDeleted[listName] || {})[id]) || 0, Number((localDeleted && localDeleted[listName] || {})[id]) || 0);
@@ -2592,8 +3476,10 @@ function mergeItems(localItems, remoteItems, deleted) {
 }
 
 function loadData() {
+  if (isDeletedPlannerScope(activePlannerScope)) return createEmptyPlanner();
   try {
-    const keysToTry = [STORAGE_KEY, BACKUP_STORAGE_KEY].concat(LEGACY_STORAGE_KEYS);
+    const keysToTry = [scopedStorageKey(STORAGE_KEY, activePlannerScope), scopedStorageKey(BACKUP_STORAGE_KEY, activePlannerScope)]
+      .concat(activePlannerScope ? [] : LEGACY_STORAGE_KEYS);
     for (let index = 0; index < keysToTry.length; index += 1) {
       const recovered = readStoredData(keysToTry[index]);
       if (recovered) {
@@ -2604,7 +3490,8 @@ function loadData() {
   } catch (error) {
     console.warn('Homeboard data could not be loaded', error);
   }
-  return createStarterData();
+  // Examples are added only when a customer creates their first household.
+  return createEmptyPlanner();
 }
 
 function readStoredData(key) {
@@ -2639,8 +3526,9 @@ function normalizeTask(task) {
     normalized.recurrenceStartWeek = normalized.recurrenceStartWeek
       || (normalized.recurrenceStartDate ? dateKey(startOfWeek(parseDate(normalized.recurrenceStartDate))) : '')
       || (normalized.date ? dateKey(startOfWeek(parseDate(normalized.date))) : '');
+    const anchorDate = getRecurringAnchorDate(normalized);
     normalized.recurrenceStartDate = normalized.recurrenceStartDate
-      || getRecurringAnchorDate(normalized)
+      || (anchorDate ? dateKey(anchorDate) : '')
       || normalized.nextAnyDayDate
       || normalized.anyDayDate
       || '';
@@ -2667,15 +3555,18 @@ function normalizeListItem(item) {
 
 function normalizePlannerData(stored) {
   if (!stored || !Array.isArray(stored.tasks) || !Array.isArray(stored.todos) || !Array.isArray(stored.groceries)) return null;
-  return {
+  const normalized = {
     tasks: stored.tasks.map(normalizeTask),
     todos: stored.todos.map(normalizeListItem),
     groceries: stored.groceries.map(normalizeListItem),
     completions: stored.completions && typeof stored.completions === 'object' ? stored.completions : {},
     anyDayCompletions: Array.isArray(stored.anyDayCompletions) ? stored.anyDayCompletions.map(normalizeAnyDayCompletion) : [],
     daySettings: normalizeDaySettings(stored.daySettings),
+    profile: stored.profile && typeof stored.profile === 'object' ? stored.profile : {},
     meta: stored.meta && typeof stored.meta === 'object' ? stored.meta : {},
   };
+  reconcileAnyDayCompletions(normalized);
+  return normalized;
 }
 
 function normalizeAnyDayCompletion(entry) {
@@ -2683,7 +3574,7 @@ function normalizeAnyDayCompletion(entry) {
   Object.keys(entry || {}).forEach((key) => { normalized[key] = entry[key]; });
   normalized.id = normalized.id || createId();
   normalized.title = String(normalized.title || '').trim();
-  normalized.assignee = ['me', 'partner', 'both'].indexOf(normalized.assignee) !== -1 ? normalized.assignee : 'both';
+  normalized.assignee = /^[a-zA-Z0-9_-]{1,80}$/.test(normalized.assignee || '') ? normalized.assignee : 'both';
   normalized.completedDate = String(normalized.completedDate || '');
   normalized.updatedAt = normalized.updatedAt || normalized.completedAt || nowIso();
   return normalized;
@@ -2791,7 +3682,8 @@ function importFootballSchedule() {
 }
 
 function applyDataMigrations() {
-  let changed = importFootballSchedule();
+  // Saved pilot entries remain intact; never import its schedule automatically.
+  let changed = false;
   const meta = state.data.meta || (state.data.meta = {});
   if (meta.volunteeringStartFixVersion !== '20260923-v2') {
     state.data.tasks.forEach((task) => {
@@ -2838,14 +3730,19 @@ function createStarterData() {
 }
 
 function persist(options) {
+  if (isDeletedPlannerScope(activePlannerScope)) return;
+  if (storageGeneration !== readStorageGeneration()) { clearDeletedAccountFromDevice(false); return; }
+  plannerRevision += 1;
   try {
+    reconcileAnyDayCompletions(state.data);
     state.data.meta = Object.assign({}, state.data.meta || {}, { demo: false });
     const serialized = JSON.stringify(state.data);
-    // The stable primary key preserves the data across app versions. The
-    // second copy gives us a recovery path if iOS returns an incomplete store
-    // after updating or reinstalling a Home Screen shortcut.
-    localStorage.setItem(STORAGE_KEY, serialized);
-    localStorage.setItem(BACKUP_STORAGE_KEY, serialized);
+    // Each project/account/household has its own primary and recovery copy.
+    // Unassigned old device data stays under the original keys for recovery;
+    // it is never silently adopted by an authenticated planner.
+    localStorage.setItem(scopedStorageKey(STORAGE_KEY, activePlannerScope), serialized);
+    localStorage.setItem(scopedStorageKey(BACKUP_STORAGE_KEY, activePlannerScope), serialized);
+    loadedDataFromStorage = true;
     mirrorDataToIndexedDB(state.data);
     if (!options || options.sync !== false) queueCloudSync();
     els.saveStatus.innerHTML = '<span class="status-dot"></span> Saved on this tablet';
@@ -2855,11 +3752,11 @@ function persist(options) {
   }
 }
 
-function markDeleted(listName, itemId) {
+function markDeleted(listName, itemId, deletedAt) {
   state.data.meta = state.data.meta || {};
   state.data.meta.deleted = state.data.meta.deleted || { tasks: {}, todos: {}, groceries: {} };
   state.data.meta.deleted[listName] = state.data.meta.deleted[listName] || {};
-  state.data.meta.deleted[listName][itemId] = Date.now();
+  state.data.meta.deleted[listName][itemId] = deletedAt || Date.now();
 }
 
 function clearDeletedMark(listName, itemId) {
@@ -2869,6 +3766,7 @@ function clearDeletedMark(listName, itemId) {
 }
 
 function queueCloudSync() {
+  if (syncState.deleting) return;
   if (!syncState || !syncState.session || !syncState.config.url || !syncState.config.key) return;
   if (syncState.queueTimer) return;
   syncState.queueTimer = window.setTimeout(() => {
@@ -2877,25 +3775,30 @@ function queueCloudSync() {
   }, 800);
 }
 
-function openPlannerDatabase(callback) {
-  if (!window.indexedDB) return;
+function openPlannerDatabase(callback, onError) {
+  if (!window.indexedDB) { if (onError) onError(); return; }
   try {
     const request = window.indexedDB.open(IDB_NAME, 1);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(IDB_STORE)) request.result.createObjectStore(IDB_STORE);
     };
     request.onsuccess = () => callback(request.result);
-    request.onerror = () => {};
+    request.onerror = () => { if (onError) onError(); };
   } catch (error) {
     // IndexedDB is an additional recovery layer; localStorage remains primary.
+    if (onError) onError();
   }
 }
 
 function mirrorDataToIndexedDB(data) {
+  const generation = storageGeneration;
+  const scope = activePlannerScope;
+  const snapshot = JSON.parse(JSON.stringify(data));
   openPlannerDatabase((database) => {
+    if (generation !== storageGeneration || generation !== readStorageGeneration() || isDeletedPlannerScope(scope)) { database.close(); return; }
     try {
       const transaction = database.transaction([IDB_STORE], 'readwrite');
-      transaction.objectStore(IDB_STORE).put(JSON.parse(JSON.stringify(data)), 'current');
+      transaction.objectStore(IDB_STORE).put({ data: snapshot, generation }, plannerDatabaseKey(scope));
       transaction.oncomplete = () => database.close();
       transaction.onerror = () => database.close();
     } catch (error) {
@@ -2905,26 +3808,42 @@ function mirrorDataToIndexedDB(data) {
 }
 
 function recoverFromIndexedDB() {
-  if (loadedDataFromStorage || !window.indexedDB) return;
-  openPlannerDatabase((database) => {
-    try {
-      const transaction = database.transaction([IDB_STORE], 'readonly');
-      const request = transaction.objectStore(IDB_STORE).get('current');
-      request.onsuccess = () => {
-        const recovered = normalizePlannerData(request.result);
-        database.close();
-        if (!recovered) return;
-        state.data = recovered;
-        loadedDataFromStorage = true;
-        persist();
-        render();
-        showToast('Your saved planner data was recovered');
-      };
-      request.onerror = () => database.close();
-    } catch (error) {
-      database.close();
-    }
+  const generation = storageGeneration;
+  const scope = activePlannerScope;
+  const revision = plannerRevision;
+  if (loadedDataFromStorage || !window.indexedDB || isDeletedPlannerScope(scope)) {
+    plannerRecoveryPromise = Promise.resolve();
+    return plannerRecoveryPromise;
+  }
+  plannerRecoveryPromise = new Promise(resolve => {
+    let finished = false;
+    const finish = () => { finished = true; window.clearTimeout(timeout); resolve(); };
+    const timeout = window.setTimeout(finish, 3000);
+    openPlannerDatabase((database) => {
+      if (finished) { database.close(); return; }
+      try {
+        const transaction = database.transaction([IDB_STORE], 'readonly');
+        const request = transaction.objectStore(IDB_STORE).get(plannerDatabaseKey(scope));
+        request.onsuccess = () => {
+          const stored = request.result;
+          const recovered = stored && (stored.generation || '') === generation
+            ? normalizePlannerData(stored.data || stored) : null;
+          database.close();
+          if (!finished && recovered && generation === storageGeneration && generation === readStorageGeneration()
+            && scope === activePlannerScope && revision === plannerRevision && !isDeletedPlannerScope(scope)) {
+            state.data = recovered;
+            loadedDataFromStorage = true;
+            persist();
+            render();
+            showToast('Your saved planner data was recovered');
+          }
+          finish();
+        };
+        request.onerror = () => { database.close(); finish(); };
+      } catch (error) { database.close(); finish(); }
+    }, finish);
   });
+  return plannerRecoveryPromise;
 }
 
 function saveAndRender() {

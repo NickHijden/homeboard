@@ -6,10 +6,15 @@
     <meta name="theme-color" content="#f4f6fb" />
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=20261006-02" />
+    <link rel="apple-touch-icon" href="assets/homeboard-icon-180.png" />
+    <link rel="stylesheet" href="styles.css?v=20261101-03" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
+    <section id="accountGate" class="account-gate" hidden aria-live="polite"></section>
+    <p id="accessBanner" class="access-banner" hidden aria-live="polite"></p>
+    <div id="notificationBanner" class="access-banner" hidden role="status"><span id="notificationMessage"></span> <button id="dismissNotification" type="button" class="subtle-button">Dismiss</button></div>
+    <p id="demoBanner" class="access-banner" hidden>Demo board · Changes stay on this device. <a href="./">Sign in or create your household</a></p>
     <div class="app-shell">
       <header class="topbar">
         <div class="brand-lockup">
@@ -18,7 +23,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261006-02</p>
+            <p class="app-version">Version 20261101-03</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -112,7 +117,8 @@
         </div>
 
         <label class="field-label" for="taskTitle">What is happening?</label>
-        <input class="large-input" id="taskTitle" name="title" type="text" placeholder="e.g. Put the garbage outside" required maxlength="120" autocomplete="off" />
+        <input class="large-input" id="taskTitle" name="title" type="text" placeholder="e.g. Put the garbage outside" required maxlength="120" autocomplete="off" aria-describedby="taskPrivacyHint" />
+        <p class="entry-privacy-hint" id="taskPrivacyHint">Do not enter payment-card details, passwords, government identification numbers, medical records, or other highly sensitive information.</p>
 
         <div class="form-row">
           <div class="field-group">
@@ -151,8 +157,8 @@
             <label class="field-label" for="taskAssignee">Who?</label>
             <select class="large-input" id="taskAssignee" name="assignee">
               <option value="both">Both of us</option>
-              <option value="me">Nick</option>
-              <option value="partner">Stephany</option>
+              <option value="me">Person 1</option>
+              <option value="partner">Person 2</option>
             </select>
           </div>
           <div class="field-group">
@@ -171,10 +177,16 @@
           <option value="none">Does not repeat</option>
           <option value="weekly">Every week</option>
           <option value="biweekly">Every 2 weeks</option>
-          <option value="monthly">Every month</option>
+          <option value="fourweekly">Every 4 weeks</option>
+          <option value="monthly">Every calendar month</option>
           <option value="quarterly">Every 3 months</option>
         </select>
 
+        <label class="any-day-toggle"><input id="taskRotate" type="checkbox" /> Take turns between household members</label>
+        <label class="field-label" for="taskCompletedOn">Last completed on <span class="optional">optional · sets the next due date</span></label>
+        <input id="taskCompletedOn" class="large-input" type="date" />
+        <label class="any-day-toggle"><input id="notifyHousehold" type="checkbox" /> Email the other members about this change</label>
+        <p class="field-hint">Shares the title and the old and new values of changed dates, times, assignment and repeat settings with the other verified household members. Notes and descriptions are not emailed. Sent when you save changes.</p>
         <label class="field-label" for="taskReminder">Email reminder <span class="optional">when notifications are connected</span></label>
         <select class="large-input" id="taskReminder" name="reminder">
           <option value="day-before">The day before</option>
@@ -201,7 +213,8 @@
         </div>
         <p class="settings-copy">Add a small label, choose a gentle preset tint, and optionally limit the tint to certain hours.</p>
         <label class="field-label" for="daySettingLabel">Label <span class="optional">optional</span></label>
-        <input class="large-input" id="daySettingLabel" type="text" maxlength="40" placeholder="e.g. Date night" autocomplete="off" />
+        <input class="large-input" id="daySettingLabel" type="text" maxlength="40" placeholder="e.g. Date night" autocomplete="off" aria-describedby="dayLabelPrivacyHint" />
+        <p class="entry-privacy-hint" id="dayLabelPrivacyHint">Do not enter payment-card details, passwords, government identification numbers, medical records, or other highly sensitive information.</p>
         <label class="field-label">Background color</label>
         <div class="day-color-palette" id="daySettingPalette" role="radiogroup" aria-label="Background color presets">
           <button class="day-color-option" type="button" data-color="" role="radio" aria-checked="false" title="No tint"><span class="day-color-swatch no-tint" aria-hidden="true"></span><span>No tint</span></button>
@@ -264,6 +277,7 @@
           <button class="secondary-button" id="exportButton" type="button">Download backup</button>
           <label class="secondary-button file-button" for="importInput">Restore backup<input id="importInput" type="file" accept="application/json" /></label>
         </div>
+        <div id="customerSettings"></div>
         <div class="sync-section">
           <p class="eyebrow">HOMEBOARD ACCOUNT</p>
           <p class="sync-copy" id="syncCopy">Use the same Homeboard login on both devices. The first time you open Homeboard from the iPad Home Screen, sign in there once as well; Homeboard remembers the connection on this device. Your laptop does not need to stay on.</p>
@@ -276,15 +290,37 @@
             <button class="secondary-button sync-wide-button" id="saveSyncConfigButton" type="button">Save connection</button>
             <div class="sync-divider"></div>
           </div>
+          <div id="signedOutAccountPanel">
           <label class="field-label" for="syncEmail">Homeboard email</label>
           <input class="large-input" id="syncEmail" type="email" placeholder="you@example.com" autocomplete="username" />
           <label class="field-label" for="syncPassword">Password</label>
           <input class="large-input" id="syncPassword" type="password" placeholder="At least 8 characters" autocomplete="current-password" />
+          <button class="subtle-button" id="forgotPasswordButton" type="button">Forgot password?</button>
+          <div class="signup-acknowledgement-panel" id="signupAcknowledgementPanel">
+            <p class="field-label" id="signupAcknowledgementHeading">Before creating an account</p>
+            <div class="signup-acknowledgement">
+              <input id="signupAcknowledgement" type="checkbox" aria-required="true" aria-labelledby="signupAcknowledgementText" aria-describedby="signupAcknowledgementHint syncStatus" />
+              <div>
+                <label id="signupAcknowledgementText" for="signupAcknowledgement">By creating a Homeboard account, I confirm that I have read and agree to the Terms of Use and acknowledge the Privacy Notice. I understand that Homeboard is a household planner and that I must not enter payment-card details, passwords, medical records, or other highly sensitive information.</label>
+                <p class="privacy-links"><a href="privacy.html#terms-of-use" target="_blank" rel="noopener">Terms of Use</a> · <a href="privacy.html#privacy-notice" target="_blank" rel="noopener">Privacy Notice</a></p>
+              </div>
+            </div>
+            <p class="privacy-hint" id="signupAcknowledgementHint">Required for a new account. Links open in a new tab. Draft wording, pending legal review.</p>
+          </div>
           <div class="settings-actions">
             <button class="primary-button" id="syncSignInButton" type="button">Sign in</button>
             <button class="secondary-button" id="syncSignUpButton" type="button">Create account</button>
-            <button class="secondary-button" id="syncNowButton" type="button">Sync now</button>
-            <button class="subtle-button" id="syncSignOutButton" type="button">Sign out</button>
+          </div>
+          <button class="subtle-button" id="resendConfirmationButton" type="button">Resend confirmation email</button>
+          <p class="field-hint">Account confirmation arrives in a separate email from your household invitation or access pass.</p>
+          </div>
+          <div id="signedInAccountPanel" hidden>
+            <p class="field-label">Signed in as</p>
+            <p class="signed-in-email" id="signedInEmail"></p>
+            <div class="settings-actions">
+              <button class="secondary-button" id="syncNowButton" type="button">Sync now</button>
+              <button class="primary-button" id="syncSignOutButton" type="button">Log out</button>
+            </div>
           </div>
           <p class="sync-status" id="syncStatus" aria-live="polite">Cloud sync is not connected.</p>
         </div>
@@ -312,9 +348,13 @@
             </div>
 
             <div class="household-create-row">
-              <input class="large-input" id="householdNameInput" type="text" maxlength="120" placeholder="e.g. Nick &amp; Stephany" autocomplete="off" />
-              <button class="secondary-button" id="createHouseholdButton" type="button">Create</button>
+              <input class="large-input" id="householdNameInput" type="text" maxlength="120" placeholder="e.g. Alex &amp; Taylor" autocomplete="off" aria-label="New household name" />
             </div>
+            <p class="field-hint" id="firstHouseholdExamplesHint" hidden>Your first household starts with two example tasks you can edit or delete: one flexible weekly task and one task in the calendar.</p>
+            <label class="field-label" for="newHouseholdPeople">Who lives in your new household?</label>
+            <textarea class="large-input" id="newHouseholdPeople" rows="2" maxlength="720" placeholder="Alex&#10;Taylor"></textarea>
+            <p class="field-hint">One name per line. You can add or change names later in People in this household.</p>
+            <button class="secondary-button" id="createHouseholdButton" type="button">Create household</button>
 
             <div class="household-invite-panel" id="householdInvitePanel" hidden>
               <p class="field-label">Invite your partner</p>
@@ -322,25 +362,34 @@
                 <input class="large-input" id="inviteEmailInput" type="email" placeholder="partner@example.com" autocomplete="email" />
                 <button class="primary-button" id="createInvitationButton" type="button">Create invite</button>
               </div>
-              <p class="field-hint">The invitation link expires after 7 days and can be used once by the invited email address.</p>
+              <p class="field-hint">Copy and send the link to your partner. It expires after 7 days and works once, with their verified email. Renewing a link makes the old link stop working.</p>
+              <label class="any-day-toggle"><input id="emailInvitation" type="checkbox" checked /> Email the invitation automatically</label>
               <div class="invitation-link-box" id="invitationLinkBox" hidden>
                 <label class="field-label" for="invitationLinkInput">Copy this secure link</label>
+                <p class="field-hint" id="invitationLinkRecipient"></p>
                 <div class="household-create-row">
                   <input class="large-input" id="invitationLinkInput" type="text" readonly />
                   <button class="secondary-button" id="copyInvitationButton" type="button">Copy</button>
                 </div>
               </div>
-              <div class="invitation-list" id="invitationList"></div>
+              <div class="invitation-list" id="invitationList" aria-live="polite"></div>
             </div>
 
             <div class="household-accept-panel">
               <p class="field-label">Have an invitation?</p>
               <div class="household-create-row">
-                <input class="large-input" id="inviteTokenInput" type="text" placeholder="Paste invitation token" autocomplete="off" />
+                <input class="large-input" id="inviteTokenInput" type="text" placeholder="Paste invitation link or code" autocomplete="off" />
                 <button class="secondary-button" id="acceptInvitationButton" type="button">Join</button>
               </div>
               <p class="field-hint">You must be signed in with the verified email address that received the invitation.</p>
             </div>
+            <details class="account-section" id="householdOptions" hidden>
+              <summary>Household options</summary>
+              <div class="account-options-content">
+                <p class="settings-copy">Only the owner can delete this household. Its shared planner will be removed for everyone.</p>
+                <button class="danger-button" id="deleteHouseholdButton" type="button">Delete household…</button>
+              </div>
+            </details>
           </div>
           <p class="sync-status" id="householdStatus" aria-live="polite"></p>
         </section>
@@ -351,7 +400,72 @@
           <div class="platform-admin-list" id="platformAdminList"></div>
           <p class="sync-status" id="platformAdminStatus" aria-live="polite"></p>
         </section>
+        <section class="privacy-section" aria-labelledby="privacySectionTitle">
+          <p class="eyebrow">PRIVACY &amp; USE</p>
+          <h3 id="privacySectionTitle">Keep household information safe</h3>
+          <p>Enter information only when you are permitted to store it and share it with your household members. Do not enter payment-card details, passwords, government identification numbers, medical records, or other highly sensitive information. Homeboard is not designed to store or protect those types of information.</p>
+          <p>You are responsible for what you enter, permission to share it, and keeping your account credentials secure. These responsibilities do not remove Homeboard’s own obligations under applicable privacy and security laws.</p>
+          <p class="privacy-links"><a href="privacy.html#acceptable-use" target="_blank" rel="noopener">Acceptable use</a> · <a href="privacy.html#terms-of-use" target="_blank" rel="noopener">Terms of Use</a> · <a href="privacy.html#privacy-notice" target="_blank" rel="noopener">Privacy Notice</a></p>
+          <p class="privacy-hint">Links open in a new tab. Draft wording, pending legal review.</p>
+        </section>
+        <details class="account-section" id="advancedAccountOptions">
+          <summary>Advanced account options</summary>
+          <div class="account-options-content">
+            <p class="settings-copy">Download a copy of your account information and shared planners for your records. Shared planners may include other members’ entries; keep the file private.</p>
+            <p class="privacy-hint">To save a planner you can restore later, use Download backup at the top of Settings.</p>
+            <label class="account-checkbox"><input id="includeDeviceData" type="checkbox" /> Include the planner saved on this device, including unsynced entries</label>
+            <div class="settings-actions">
+              <button class="secondary-button" id="exportAccountButton" type="button" disabled>Export my data</button>
+              <button class="danger-button" id="deleteAccountButton" type="button" disabled>Delete my account…</button>
+            </div>
+            <p class="sync-status" id="accountDataStatus" role="status">Sign in to export or delete your account.</p>
+          </div>
+        </details>
         <div class="settings-note"><span aria-hidden="true">✦</span> Local saving stays active even when the internet is unavailable.</div>
+      </form>
+    </dialog>
+
+    <dialog class="account-delete-dialog" id="deleteHouseholdDialog" aria-labelledby="deleteHouseholdTitle" aria-describedby="deleteHouseholdExplanation">
+      <form class="task-form" id="deleteHouseholdForm">
+        <div class="dialog-heading">
+          <div><p class="eyebrow">Permanent deletion</p><h2 id="deleteHouseholdTitle">Delete household?</h2></div>
+          <button class="close-button" id="closeDeleteHouseholdButton" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="household-delete-name" id="deleteHouseholdName"></p>
+        <p class="settings-copy" id="deleteHouseholdExplanation">This permanently deletes this household and its shared tasks, events, groceries and invitations for all members. Everyone keeps their account and any other households.</p>
+        <p class="settings-copy">Download a backup first if you want to keep this planner. Deletion cannot be undone. Previously downloaded files and copies on other devices are not erased.</p>
+        <label class="field-label" for="deleteHouseholdPhrase">Type the household name exactly to confirm</label>
+        <input class="large-input" id="deleteHouseholdPhrase" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" required />
+        <p class="sync-status" id="deleteHouseholdStatus" role="status"></p>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="cancelDeleteHouseholdButton" type="button">Cancel</button>
+          <button class="danger-button" id="confirmDeleteHouseholdButton" type="submit" disabled>Permanently delete household</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="account-delete-dialog" id="deleteAccountDialog" aria-labelledby="deleteAccountTitle">
+      <form class="task-form" id="deleteAccountForm">
+        <div class="dialog-heading">
+          <div><p class="eyebrow">Permanent deletion</p><h2 id="deleteAccountTitle">Delete your account?</h2></div>
+          <button class="close-button" id="closeDeleteAccountButton" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="settings-copy" id="deleteAccountIdentity"></p>
+        <p class="settings-copy">This permanently removes your login, account details, private cloud planner and invitations involving your account. Households where you are the sole owner and member, and their planners, are also deleted.</p>
+        <ul class="account-household-preview" id="deleteAccountHouseholds"></ul>
+        <p class="settings-copy">Shared households you leave keep their planner entries, including entries you added. This device’s planner and saved login will be cleared. Downloaded files and copies on other devices are not erased; clear those separately. Provider backups and security logs follow the provider’s retention settings.</p>
+        <p class="settings-copy">Export any data you want to keep before continuing. Deletion cannot be undone.</p>
+        <div id="deleteAccountConfirmation" hidden>
+          <label class="field-label" for="deleteAccountPassword">Current password</label>
+          <input class="large-input" id="deleteAccountPassword" type="password" autocomplete="current-password" required />
+          <label class="field-label" for="deleteAccountPhrase">Type DELETE to confirm</label>
+          <input class="large-input" id="deleteAccountPhrase" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required pattern="DELETE" />
+        </div>
+        <p class="sync-status" id="deleteAccountStatus" role="status"></p>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="cancelDeleteAccountButton" type="button">Cancel</button>
+          <button class="danger-button" id="confirmDeleteAccountButton" type="submit" disabled>Permanently delete account</button>
+        </div>
       </form>
     </dialog>
 
@@ -364,7 +478,7 @@
           </div>
           <button class="close-button" id="closeBackupButton" type="button" aria-label="Close">×</button>
         </div>
-        <p class="settings-copy">This older iPad cannot download a <code>blob:</code> file directly. Tap <strong>Copy backup text</strong>, then paste it into a text file on your laptop and save it with a <code>.json</code> ending.</p>
+        <p class="settings-copy" id="backupInstructions">Tap Copy backup text, then paste it into a text file and save it with a .json ending.</p>
         <textarea class="backup-text" id="backupText" readonly aria-label="Homeboard backup JSON"></textarea>
         <p class="sync-status" id="backupStatus" aria-live="polite">The backup text is ready to copy.</p>
         <div class="dialog-actions">
@@ -374,12 +488,26 @@
       </form>
     </dialog>
 
-    <!-- Invisible legacy elements prevent an older cached script from stopping at startup. -->
-    <button id="installButton" type="button" hidden aria-hidden="true">Install</button>
-    <dialog id="installDialog" hidden aria-hidden="true"><button id="closeInstallButton" type="button">Close</button></dialog>
+    <dialog id="installDialog" class="task-dialog" aria-labelledby="installTitle"><div class="task-form"><h2 id="installTitle">Install Homeboard</h2><p id="installInstructions"></p><button id="closeInstallButton" class="secondary-button" type="button">Close</button></div></dialog>
+
+    <dialog id="passwordRecoveryDialog" class="task-dialog" aria-labelledby="passwordRecoveryTitle">
+      <form id="passwordRecoveryForm" class="task-form">
+        <h2 id="passwordRecoveryTitle">Choose a new password</h2>
+        <p id="passwordRecoveryIdentity" class="settings-copy"></p>
+        <p class="settings-copy">Your household and planner stay with your account.</p>
+        <label class="field-label" for="recoveryPassword">New password</label>
+        <input id="recoveryPassword" class="large-input" type="password" minlength="8" autocomplete="new-password" required />
+        <label class="field-label" for="recoveryPasswordAgain">Repeat new password</label>
+        <input id="recoveryPasswordAgain" class="large-input" type="password" minlength="8" autocomplete="new-password" required />
+        <p id="passwordRecoveryStatus" class="sync-status" role="status"></p>
+        <div class="dialog-actions"><button id="cancelPasswordRecovery" class="secondary-button" type="button">Cancel</button><button id="saveRecoveryPassword" class="primary-button" type="submit" disabled>Save password</button></div>
+      </form>
+    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261006-02" defer></script>
-    <script src="app.js?v=20261006-02" defer></script>
+    <script src="recurrence.js?v=20261101-03" defer></script>
+    <script src="planner-features.js?v=20261101-03" defer></script>
+    <script src="customer.js?v=20261101-03" defer></script>
+    <script src="app.js?v=20261101-03" defer></script>
   </body>
 </html>
