@@ -260,7 +260,7 @@ async function claimLaunchPass() {
     const session=await ensureSyncSession();
     if(!current())return;
     const result=await syncRequest('/functions/v1/household-email',{method:'POST',body:{action:'claim-pass',household_id:selected.household_id}},session.access_token);
-    if(current())accountElement('customerFeatureStatus').textContent=result.message || 'Check your email for an activation link and code.';
+    if(current())accountElement('customerFeatureStatus').textContent=result.message || 'Check your email for an activation code.';
   } catch(error) { if(current())accountElement('customerFeatureStatus').textContent='A launch pass could not be issued. '+(error.message||'Please try later.'); }
   finally{if(current())renderCustomerFeatures();}
 }
@@ -283,6 +283,8 @@ async function redeemAccessPass() {
 }
 async function notifyPlannerChange(taskId, updated) {
   const scope=activePlannerScope; const selected=getSelectedHousehold();
+  const entry=state.data.tasks.find(task=>task.id===taskId);
+  const summary=entry?{entry_title:String(entry.title||'').slice(0,160),entry_kind:entry.kind}:{};
   const current=customerContext();
   if(!selected || !syncState.session || IS_DEMO_HOST){showToast('Saved. Sign in to a household to send a notification.');return;}
   try {
@@ -293,7 +295,7 @@ async function notifyPlannerChange(taskId, updated) {
     if(!saved){showToast('Saved on this device. Sync the board before sending a notification.');return;}
     const session=await ensureSyncSession();
     if(!current())return;
-    const result=await syncRequest('/functions/v1/household-email',{method:'POST',body:{action:'notify',household_id:selected.household_id,request_id:createId(),change:updated?'updated':'added'}},session.access_token);
+    const result=await syncRequest('/functions/v1/household-email',{method:'POST',body:{action:'notify',household_id:selected.household_id,request_id:createId(),change:updated?'updated':'added',...summary}},session.access_token);
     showToast(result.message||'Notification accepted for delivery.');
   } catch(error){showToast('Saved, but the notification could not be sent.');}
 }
