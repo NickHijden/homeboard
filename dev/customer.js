@@ -42,6 +42,7 @@ function signupReturnUrl() {
 }
 function initializeCustomerFeatures() {
   customerState.initialized = true;
+  accountElement('dismissNotification').addEventListener('click',()=>{accountElement('notificationBanner').hidden=true;});
   try { customerState.preferences = JSON.parse(localStorage.getItem('homeboard-display-v1'+STORAGE_NAMESPACE)) || {}; } catch (error) { /* Device defaults. */ }
   accountElement('customerSettings').innerHTML = `
     <details id="householdPeopleOptions" class="customer-options"><summary>People in this household</summary>
@@ -281,23 +282,30 @@ async function redeemAccessPass() {
   } catch(error){if(current())accountElement('customerFeatureStatus').textContent=error.message||'The pass could not be activated.';}
   finally{if(current())renderCustomerFeatures();}
 }
+function showNotificationResult(message) {
+  accountElement('notificationMessage').textContent=message;
+  accountElement('notificationBanner').hidden=false;
+  showToast(message);
+}
 async function notifyPlannerChange(taskId, updated) {
   const scope=activePlannerScope; const selected=getSelectedHousehold();
   const entry=state.data.tasks.find(task=>task.id===taskId);
   const summary=entry?{entry_title:String(entry.title||'').slice(0,160),entry_kind:entry.kind}:{};
   const current=customerContext();
-  if(!selected || !syncState.session || IS_DEMO_HOST){showToast('Saved. Sign in to a household to send a notification.');return;}
+  if(!selected || !syncState.session || IS_DEMO_HOST){showNotificationResult('Saved. No email sent: sign in to a household first.');return;}
+  showNotificationResult('Saved on this device. Syncing before requesting the email…');
   try {
     const deadline=Date.now()+10000;
     while(syncState.busy && current() && Date.now()<deadline)await new Promise(resolve=>window.setTimeout(resolve,50));
-    if(!current())return;
+    if(!current()){showNotificationResult('No email sent: the account or household changed.');return;}
     const saved=await syncNow(false); if(!current())return;
-    if(!saved){showToast('Saved on this device. Sync the board before sending a notification.');return;}
+    if(!saved){showNotificationResult('No email sent: the board could not be synced. Check the connection and household access in Settings, then save again with the email option selected.');return;}
     const session=await ensureSyncSession();
     if(!current())return;
     const result=await syncRequest('/functions/v1/household-email',{method:'POST',body:{action:'notify',household_id:selected.household_id,request_id:createId(),change:updated?'updated':'added',...summary}},session.access_token);
-    showToast(result.message||'Notification accepted for delivery.');
-  } catch(error){showToast('Saved, but the notification could not be sent.');}
+    if(!current())return;
+    showNotificationResult(result.sent===0?'Saved. No email sent: there are no other verified household members to notify. An invitation must be accepted first.':result.message||'Notification accepted for delivery.');
+  } catch(error){if(current())showNotificationResult('Saved, but no email could be confirmed. '+(error.message||'Please try again later.'));}
 }
 async function requestHouseholdRenewal() {
   const selected=getSelectedHousehold(); if(!selected || selected.role!=='owner')return;

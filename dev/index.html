@@ -7,12 +7,13 @@
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="assets/homeboard-icon-180.png" />
-    <link rel="stylesheet" href="styles.css?v=20261101-01-staging" />
+    <link rel="stylesheet" href="styles.css?v=20261101-02-staging" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
     <section id="accountGate" class="account-gate" hidden aria-live="polite"></section>
     <p id="accessBanner" class="access-banner" hidden aria-live="polite"></p>
+    <div id="notificationBanner" class="access-banner" hidden role="status"><span id="notificationMessage"></span> <button id="dismissNotification" type="button" class="subtle-button">Dismiss</button></div>
     <p id="demoBanner" class="access-banner" hidden>Demo board · Changes stay on this device. <a href="./">Sign in or create your household</a></p>
     <div class="app-shell">
       <header class="topbar">
@@ -22,7 +23,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261101-01-staging</p>
+            <p class="app-version">Version 20261101-02-staging</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -504,9 +505,9 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261101-01-staging" defer></script>
-    <script src="planner-features.js?v=20261101-01-staging" defer></script>
-    <script src="customer.js?v=20261101-01-staging" defer></script>
-    <script src="app.js?v=20261101-01-staging" defer></script>
+    <script src="recurrence.js?v=20261101-02-staging" defer></script>
+    <script src="planner-features.js?v=20261101-02-staging" defer></script>
+    <script src="customer.js?v=20261101-02-staging" defer></script>
+    <script src="app.js?v=20261101-02-staging" defer></script>
   </body>
 </html>
