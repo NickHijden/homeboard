@@ -15,7 +15,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261102-01';
+const APP_VERSION = '20261102-02';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -1086,7 +1086,11 @@ function createTaskElement({ task, dateKey: occurrenceDate, onComplete }) {
   const assignedPerson = effectiveAssignee(task, occurrenceDate);
   const assigneeLabel = HomeboardPlanner.label(assignedPerson, state.data.profile);
   const assigneeClass = assignedPerson === 'me' ? 'assignee-me' : assignedPerson === 'partner' ? 'assignee-partner' : 'assignee-both';
-  const assigneeDecoration = '';
+  const assigneeDecoration = assignedPerson === 'me'
+    ? '<span class="assignee-decoration nick-food-decoration" aria-hidden="true">🍛</span>'
+    : assignedPerson === 'partner'
+      ? '<span class="assignee-decoration stephany-monkey-decoration" aria-hidden="true">🐒</span>'
+      : '';
   const recurrenceLabel = task.recurrence === 'weekly' ? 'Every week' : task.recurrence === 'biweekly' ? 'Every 2 weeks' : task.recurrence === 'fourweekly' ? 'Every 4 weeks' : task.recurrence === 'monthly' ? 'Every month' : task.recurrence === 'quarterly' ? 'Every 3 months' : '';
   const kindLabel = kind === 'expiry' ? 'Use-by' : kind === 'wellness' ? 'Wellness' : kind === 'event' ? 'Event' : 'Task';
   const eventTime = formatEventTime(task);

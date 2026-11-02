@@ -116,6 +116,15 @@ test('names and Together assignments appear once and hostile names remain plain 
   await page.locator('#closeSettingsButton').click();await page.locator('#addTaskButton').click();
   assert.match(await page.locator('#taskAssignee').innerText(),/Alex renamed/);assert.equal(await page.locator('#taskAssignee img').count(),0);
 });
+test('task decorations restore curry and monkey and follow rotated assignments',async t=>{
+ const {page}=await open(t);
+ const icons=await page.evaluate(()=>{
+  const task={id:'icons',title:'Chore',kind:'task',assignee:'me',recurrence:'weekly',rotate:true,rotationAnchor:'2026-10-05'};
+  return ['2026-10-05','2026-10-12'].map(date=>createTaskElement({task,dateKey:date}).querySelector('.assignee-decoration').textContent)
+   .concat([createTaskElement({task:Object.assign({},task,{assignee:'both',rotate:false}),dateKey:'2026-10-05'}).querySelector('.assignee-decoration')]);
+ });
+ assert.deepEqual(icons,['🍛','🐒',null]);
+});
 test('recording actual completion schedules four weeks from that date and survives reload',async t=>{
   const {page,cloud}=await open(t);
   await page.locator('#addTaskButton').click();await page.locator('#taskTitle').fill('Filter change');
