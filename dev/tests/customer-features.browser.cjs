@@ -61,9 +61,9 @@ test('missed tasks remain red in the original week and task history survives rel
   state.data.tasks.push({id:'history-test',title:'History chore',kind:'task',anyDay:true,anyDayDate:'2026-09-28',nextAnyDayDate:'2026-09-28',recurrence:'weekly',assignee:'both',updatedAt:nowIso()});
   render();completeAnyDayTask('history-test','History chore');state.weekStart=parseDate('2026-09-28');render();
  });
- assert.match(await page.locator('#missedWeekHistory').innerText(),/Missed.*History chore/);
+ assert.match(await page.locator('#missedWeekHistory').innerText(),/Missed[\s\S]*History chore/);
  await page.locator('#taskOverviewButton').click();await page.locator('#taskHistoryButton').click();
- assert.match(await page.locator('#taskHistoryList').innerText(),/History chore.*2026-10-09/);
+ assert.match(await page.locator('#taskHistoryList').innerText(),/History chore[\s\S]*2026-10-09/);
  await page.reload();await page.waitForFunction(()=>householdState.loaded&&!syncState.busy);
  await page.evaluate(()=>{state.weekStart=parseDate('2026-09-28');render();});
  assert.match(await page.locator('#missedWeekHistory').innerText(),/History chore/);
@@ -77,6 +77,28 @@ test('task history includes only flexible recurring tasks with relative next dat
  });
  assert.deepEqual(labels,['deze week','volgende week','over 3 weken','over 2 maanden en 1 week']);
  const text=await page.locator('#taskHistoryList').textContent();assert.match(text,/Flexible/);assert.doesNotMatch(text,/Fixed|Once/);assert.match(text,/volgende week/);
+});
+test('history columns use household names, sort nearest first and missed badges exclude fixed tasks',async t=>{
+ const {page}=await open(t);
+ await page.evaluate(()=>{
+  state.data.profile.members=[{id:'me',name:'Nick'},{id:'partner',name:'Stephany'}];
+  const base={kind:'task',anyDay:true,recurrence:'weekly',updatedAt:nowIso()};
+  state.data.tasks=[
+   Object.assign({},base,{id:'late',title:'Ramen wassen',assignee:'me',nextAnyDayDate:'2026-11-09'}),
+   Object.assign({},base,{id:'near',title:'Planten water geven',assignee:'me',nextAnyDayDate:'2026-10-12'}),
+   Object.assign({},base,{id:'other',title:'Beddengoed verschonen',assignee:'partner',nextAnyDayDate:'2026-10-19'}),
+   Object.assign({},base,{id:'fixed',title:'Fixed date chore',assignee:'me',anyDay:false,date:'2026-10-12'})];
+  state.weekStart=parseDate('2026-09-28');
+  state.data.missedOccurrences=[{id:'old-flex',taskId:'near',title:'Planten water geven',weekStart:'2026-09-28'},{id:'old-fixed',taskId:'fixed',title:'Fixed date chore',weekStart:'2026-09-28'}];
+  renderMissedHistory();
+ });
+ assert.equal(await page.locator('.missed-task').count(),1);
+ assert.doesNotMatch(await page.locator('#missedWeekHistory').innerText(),/Fixed date chore/);
+ await page.locator('#taskOverviewButton').click();await page.locator('#taskHistoryButton').click();
+ assert.deepEqual(await page.locator('.history-column h3').allTextContents(),['Nick','Stephany']);
+ assert.deepEqual(await page.locator('.history-column').first().locator('.history-card strong').allTextContents(),['Planten water geven','Ramen wassen']);
+ fs.mkdirSync(path.join(root,'tmp/history-qa'),{recursive:true});
+ await page.screenshot({path:path.join(root,'tmp/history-qa/columns.png')});
 });
 test('names and Together assignments appear once and hostile names remain plain text',async t=>{
   const data=blank();data.tasks=[{id:'shared-task',title:'One shared chore',kind:'task',assignee:'both',anyDay:true,anyDayDate:'2026-10-05',nextAnyDayDate:'2026-10-05',recurrence:'weekly',recurrenceStartDate:'2026-10-05',updatedAt:'2026-10-08'}];

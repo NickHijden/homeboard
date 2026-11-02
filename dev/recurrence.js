@@ -194,12 +194,17 @@
     return changed;
   }
 
+  function isFlexibleMissed(row,tasks) {
+    if(typeof row.anyDay==='boolean')return row.anyDay && isRecurringTask(row);
+    const task=(tasks||[]).find(task=>task.id===row.taskId);
+    return Boolean(task && task.kind==='task' && task.anyDay && isRecurringTask(task));
+  }
   function missedHistory(data, currentWeekStart) {
     const boundary = dateKey(startOfWeek(currentWeekStart));
     const rows = new Map();
     (data.missedOccurrences || []).forEach(row => { if (row && row.id) rows.set(row.id, row); });
     (data.tasks || []).forEach(original => {
-      if (original.kind !== 'task' || !isRecurringTask(original)) return;
+      if (original.kind !== 'task' || !original.anyDay || !isRecurringTask(original)) return;
       const task = Object.assign({}, original);
       if (task.anyDay) reconcileAnyDayTask(task, data.anyDayCompletions);
       const candidates = [task.anyDay ? task.nextAnyDayDate || task.anyDayDate : task.date,
@@ -218,7 +223,7 @@
           if (done) { due = addRecurringDate(due, task.recurrence); continue; }
           const id = task.id + '::' + key;
           if (!rows.has(id)) rows.set(id, {id, taskId:task.id, title:task.title, assignee:task.assignee,
-            occurrenceDate:key, weekStart:dateKey(week), updatedAt:end+'T23:59:59.000Z'});
+            anyDay:true,recurrence:task.recurrence,occurrenceDate:key, weekStart:dateKey(week), updatedAt:end+'T23:59:59.000Z'});
           // An unfinished task is carried weekly, irrespective of its interval.
           due = addDays(due, 7);
         }
@@ -240,6 +245,7 @@
   }
 
   return {
+    isFlexibleMissed,
     missedHistory,
     lastCompletion,
     addRecurringDate,

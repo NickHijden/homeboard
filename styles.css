@@ -662,4 +662,19 @@ html.privacy-page, html.privacy-page body { height: auto; min-height: 100%; over
   .primary-button, .secondary-button, .subtle-button, .danger-button { min-height: 44px; }
 }
 
-.missed-task { color: #a82738; background: #fff0f1; border-left: 3px solid #a82738; padding: 10px 14px; border-radius: 8px; }
+.history-intro { color: var(--muted); font-size: 12px; }
+.history-columns { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin: 12px 0 22px; }
+.history-column { min-width: 0; background: #f7f7fc; border: 1px solid #ececf4; border-radius: 16px; padding: 12px; }
+.history-column-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.history-column-heading h3 { margin: 0; font-size: 15px; }
+.history-column-heading > span { color: #6962d4; background: #eeecff; border-radius: 12px; padding: 2px 8px; font-size: 12px; }
+.history-card { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 11px 12px; margin-top: 8px; background: white; border: 1px solid #ececf4; border-radius: 12px; overflow-wrap: anywhere; }
+.history-card strong { font-size: 13px; }
+.history-due { color: #574dc3; background: #f0eeff; border-radius: 8px; padding: 3px 7px; font-size: 12px; }
+.history-card small,.history-empty { color: #72788a; font-size: 11px; }
+.missed-week-history { margin-top: 12px; padding-top: 10px; border-top: 1px solid #ececf4; }
+.missed-heading { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 11px; color: #72788a; margin-bottom: 7px; }
+.missed-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.missed-task { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; color: #545968; border: 1px solid #eee6e8; background: #fff; padding: 5px 8px; border-radius: 9px; font-size: 11px; overflow-wrap: anywhere; }
+.missed-badge { color: #a82738; background: #fff1f2; border-radius: 5px; padding: 2px 5px; font-size: 10px; flex-shrink: 0; }
+@media (max-width: 520px) { .history-columns { grid-template-columns: minmax(0,1fr); } }

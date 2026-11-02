@@ -25,10 +25,10 @@ export function createWeeklySummaryHandler({url,serviceKey,cronSecret,brevoKey,f
     const households=await call('rpc/weekly_summary_batch','POST',{after_id:after});
     if(!households.length)break;
     for(const household of households){
-     const rows=recurrence.missedHistory(household.data,window.boundary).filter(row=>row.weekStart===window.start);
+     const rows=recurrence.missedHistory(household.data,window.boundary).filter(row=>row.weekStart===window.start && recurrence.isFlexibleMissed(row,household.data.tasks));
      // Always send an overview, including when no tasks were missed.
      const text='Homeboard weekly overview\n\nWeek: '+window.start+' to '+window.end+'\n\n'+
-       (rows.length?'Tasks recorded as missed:\n'+rows.map(row=>'• '+clean(row.title)+' — '+row.occurrenceDate).join('\n'):'No missed recurring tasks were found in the synced board for this week.')+
+       (rows.length?'Recurring tasks without a fixed day recorded as missed:\n'+rows.map(row=>'• '+clean(row.title)).join('\n'):'No missed recurring tasks without a fixed day were found in the synced board for this week.')+
        '\n\nBased on the latest synced board. Tasks may have been completed since their missed week. Offline changes are included only after syncing. Open your Homeboard app to review them.';
      for(const recipient of household.recipients){
       const identity={household_id:household.id,user_id:recipient.id,week_start:window.start};

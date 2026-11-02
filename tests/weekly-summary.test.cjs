@@ -1,16 +1,22 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');
 const recurrence=require('../recurrence.js');
-const task=(id,extra={})=>({id,title:id,kind:'task',date:'2026-10-26',recurrence:'weekly',...extra});
+const task=(id,extra={})=>({id,title:id,kind:'task',anyDay:true,anyDayDate:'2026-10-26',date:'2026-10-26',recurrence:'weekly',...extra});
 test('missed history retains original weeks after completion and excludes completed tasks/events',()=>{
- const data={tasks:[task('open'),task('done'),task('event',{kind:'event'})],completions:{'done::2026-10-26':true}};
+ const data={tasks:[task('open'),task('done'),task('event',{kind:'event'}),task('fixed',{anyDay:false})],anyDayCompletions:[{taskId:'done',occurrenceDate:'2026-10-26',completedDate:'2026-10-26',completedAt:'2026-10-26T10:00:00Z',nextAnyDayDate:'2026-11-02'}],completions:{}};
  const rows=recurrence.missedHistory(data,new Date(2026,10,2));assert.deepEqual(rows.map(r=>r.taskId),['open']);
- data.missedOccurrences=rows;data.completions['open::2026-10-26']=true;
+ data.missedOccurrences=rows;data.anyDayCompletions.push({taskId:'open',occurrenceDate:'2026-10-26',completedDate:'2026-11-02',completedAt:'2026-11-02T10:00:00Z',nextAnyDayDate:'2026-11-09'});
  assert.deepEqual(recurrence.missedHistory(data,new Date(2026,10,2)),rows);
 });
 test('flexible completion history prevents stale due dates creating missed tasks',()=>{
  const data={tasks:[task('flex',{anyDay:true,anyDayDate:'2026-10-26',nextAnyDayDate:'2026-10-26',recurrence:'fourweekly'})],anyDayCompletions:[{taskId:'flex',occurrenceDate:'2026-10-26',completedDate:'2026-10-28',completedAt:'2026-10-28T10:00:00Z',nextAnyDayDate:'2026-11-25'}]};
  assert.equal(recurrence.missedHistory(data,new Date(2026,10,2)).length,0);
  assert.equal(recurrence.lastCompletion(data,data.tasks[0]),'2026-10-28');
+});
+test('legacy fixed-day missed rows are excluded but flexible snapshots survive task deletion',()=>{
+ const tasks=[task('fixed',{anyDay:false}),task('flex')];
+ assert.equal(recurrence.isFlexibleMissed({taskId:'fixed'},tasks),false);
+ assert.equal(recurrence.isFlexibleMissed({taskId:'flex'},tasks),true);
+ assert.equal(recurrence.isFlexibleMissed({taskId:'deleted',anyDay:true,recurrence:'weekly'},tasks),true);
 });
 test('weekly window uses Amsterdam time in winter and summer',async()=>{
  const {weeklyWindow}=await import('../supabase/functions/weekly-summary/handler.mjs');

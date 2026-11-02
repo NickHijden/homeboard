@@ -15,7 +15,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261101-05';
+const APP_VERSION = '20261102-01';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -664,13 +664,19 @@ function renderTaskOverview() {
 function renderTaskHistory() {
   const list=accountElement('taskHistoryList'); list.hidden=false;
   const tasks=state.data.tasks.filter(task=>task.kind==='task' && task.anyDay && isRecurringTask(task));
-  list.innerHTML='<p>Terugkerende taken zonder vaste dag.</p>'+(tasks.length?
-    tasks.map(task=>{
-      const last=HomeboardRecurrence.lastCompletion(state.data,task);
-      const next=taskHistoryDueLabel(task.nextAnyDayDate||task.anyDayDate);
-      return '<p><strong>'+escapeHtml(task.title)+'</strong> — Laatst uitgevoerd: '+escapeHtml(last||'Nog niet uitgevoerd')+
-        '<br>Opnieuw uitvoeren: '+escapeHtml(next)+'</p>';
-    }).join(''):'<p>Geen terugkerende taken zonder vaste dag.</p>');
+  const due=task=>task.nextAnyDayDate||task.anyDayDate||'9999-12-31';
+  tasks.sort((a,b)=>due(a).localeCompare(due(b))||a.title.localeCompare(b.title));
+  const people=plannerPeople(true).filter(person=>person.id!=='both'||tasks.some(task=>effectiveAssignee(task)==='both'));
+  list.innerHTML='<p class="history-intro">Terugkerende taken zonder vaste dag · eerstvolgende bovenaan</p>'+
+    '<div class="history-columns">'+people.map(person=>{
+      const assigned=tasks.filter(task=>effectiveAssignee(task)===person.id);
+      return '<section class="history-column"><div class="history-column-heading"><h3>'+escapeHtml(person.id==='both'?'Samen':person.name)+'</h3><span>'+assigned.length+'</span></div>'+
+        (assigned.length?assigned.map(task=>{
+          const last=HomeboardRecurrence.lastCompletion(state.data,task);
+          return '<article class="history-card"><strong>'+escapeHtml(task.title)+'</strong><span class="history-due">'+escapeHtml(taskHistoryDueLabel(task.nextAnyDayDate||task.anyDayDate))+'</span>'+
+            '<small>Laatst uitgevoerd: '+escapeHtml(last||'Nog niet uitgevoerd')+'</small></article>';
+        }).join(''):'<p class="history-empty">Geen taken</p>')+'</section>';
+    }).join('')+'</div>';
 }
 
 function taskHistoryDueLabel(value, today = new Date()) {
@@ -694,9 +700,9 @@ function taskHistoryDueLabel(value, today = new Date()) {
 
 function renderMissedHistory() {
   const target=accountElement('missedWeekHistory');
-  const rows=(state.data.missedOccurrences||[]).filter(row=>row.weekStart===dateKey(state.weekStart));
+  const rows=(state.data.missedOccurrences||[]).filter(row=>row.weekStart===dateKey(state.weekStart) && HomeboardRecurrence.isFlexibleMissed(row,state.data.tasks));
   target.hidden=!rows.length;
-  target.innerHTML='<h3>Missed this week</h3>'+rows.map(row=>'<p class="missed-task"><strong>Missed</strong> · '+escapeHtml(row.title)+' · '+escapeHtml(row.occurrenceDate)+'</p>').join('');
+  target.innerHTML='<div class="missed-heading"><span class="eyebrow">GEMIST DEZE WEEK</span><span>Terugkerende taken zonder vaste dag</span></div><div class="missed-items">'+rows.map(row=>'<span class="missed-task"><span class="missed-badge">Missed</span><span>'+escapeHtml(row.title)+'</span></span>').join('')+'</div>';
 }
 
 function getDaySetting(index) {
