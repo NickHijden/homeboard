@@ -125,11 +125,65 @@ test('task decorations restore curry and monkey and follow rotated assignments',
  });
  assert.deepEqual(icons,['🍛','🐒',null]);
 });
+test('taking turns chooses the starter, repeats weekly, and preserves the choice after editing and reload',async t=>{
+  const {page}=await open(t);
+  await page.locator('#addTaskButton').click();
+  await page.locator('#taskTitle').fill('Weekly turns');
+  await page.locator('#taskAnyDay').check();
+  await page.locator('#taskRotate').check();
+  assert.equal(await page.locator('#taskRotationFields').isVisible(),true);
+  assert.deepEqual(await page.locator('#taskRotationStarter option').allTextContents(),['Alex','Taylor']);
+  await page.locator('#taskRotationStarter').selectOption('partner');
+  await page.locator('#taskStartWeek').fill('2026-10-05');
+  assert.equal(await page.locator('#taskRepeat').inputValue(),'weekly');
+  assert.equal(await page.locator('#taskRepeat').isDisabled(),true);
+  fs.mkdirSync(path.join(root,'tmp/rotation-qa'),{recursive:true});
+  await page.screenshot({path:path.join(root,'tmp/rotation-qa/form.png'),fullPage:true});
+  await page.locator('#saveEventButton').click();
+  await page.waitForFunction(()=>state.data.tasks.some(t=>t.title==='Weekly turns'));
+  const turns=await page.evaluate(()=>{
+    const task=state.data.tasks.find(t=>t.title==='Weekly turns');
+    return ['2026-10-05','2026-10-11','2026-10-12','2026-10-19'].map(date=>effectiveAssignee(task,date));
+  });
+  assert.deepEqual(turns,['partner','partner','me','partner']);
+  await page.evaluate(()=>openEventDialog({task:state.data.tasks.find(t=>t.title==='Weekly turns')}));
+  assert.equal(await page.locator('#taskRotationStarter').inputValue(),'partner');
+  await page.locator('#taskTitle').fill('Weekly turns edited');
+  await page.locator('#saveEventButton').click();
+  await page.evaluate(async()=>{while(syncState.busy)await new Promise(r=>setTimeout(r,25));await syncNow(false);});
+  await page.reload();await page.waitForFunction(()=>householdState.loaded&&!syncState.busy);
+  assert.deepEqual(await page.evaluate(()=>{const t=state.data.tasks.find(t=>t.title==='Weekly turns edited');return [t.assignee,t.rotationAnchor,t.recurrence,t.reminder];}),['partner','2026-10-05','weekly','none']);
+});
+
+test('undated tasks and events cannot select or save a day-before reminder',async t=>{
+  const {page}=await open(t);
+  for(const kind of ['task','event']) {
+    await page.locator('#addTaskButton').click();
+    await page.locator('#taskTitle').fill('Undated '+kind);
+    await page.locator('#taskType').selectOption(kind);
+    await page.locator('#taskDate').fill('');
+    assert.equal(await page.locator('#taskReminderFields').isVisible(),false);
+    await page.locator('#taskAnyDay').check();
+    assert.equal(await page.locator('#taskReminder').isDisabled(),true);
+    assert.equal(await page.locator('#taskReminder option[value="day-before"]').isDisabled(),true);
+    await page.locator('#saveEventButton').click();
+    await page.waitForFunction(title=>state.data.tasks.some(t=>t.title===title),'Undated '+kind);
+  }
+  assert.deepEqual(await page.evaluate(()=>state.data.tasks.map(t=>t.reminder)),['none','none']);
+  await page.evaluate(()=>openEventDialog({task:state.data.tasks[0]}));
+  assert.equal(await page.locator('#taskReminderFields').isVisible(),false);
+  await page.locator('#taskAnyDay').uncheck();
+  assert.equal(await page.locator('#taskReminderFields').isVisible(),true);
+  await page.locator('#taskReminder').selectOption('day-before');
+  await page.locator('#saveEventButton').click();
+  assert.equal(await page.evaluate(()=>state.data.tasks[0].reminder),'day-before');
+});
+
 test('recording actual completion schedules four weeks from that date and survives reload',async t=>{
   const {page,cloud}=await open(t);
   await page.locator('#addTaskButton').click();await page.locator('#taskTitle').fill('Filter change');
   await page.locator('#taskRepeat').selectOption('fourweekly');await page.locator('#taskCompletedOn').fill('2026-10-02');
-  await page.locator('#taskRotate').check();await page.locator('#taskAssignee').selectOption('me');
+  await page.locator('#taskAssignee').selectOption('me');
   await page.locator('#taskForm').evaluate(form=>form.requestSubmit());
   await page.waitForFunction(()=>state.data.tasks.some(t=>t.title==='Filter change'));
   assert.equal(await page.evaluate(()=>state.data.tasks[0].date),'2026-10-30');

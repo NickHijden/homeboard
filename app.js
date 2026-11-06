@@ -15,7 +15,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261102-02';
+const APP_VERSION = '20261106-01';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -270,6 +270,11 @@ function bindEvents() {
     if (event.target === els.taskOverviewDialog) closeDialog(els.taskOverviewDialog);
   });
   if (els.taskAnyDay) els.taskAnyDay.addEventListener('change', updateAnyDayField);
+  els.taskDate.addEventListener('input', updateTaskReminderField);
+  accountElement('taskRotate').addEventListener('change', updateTaskRotationFields);
+  accountElement('taskRotationStarter').addEventListener('change', () => {
+    if (accountElement('taskRotate').checked) els.taskAssignee.value = accountElement('taskRotationStarter').value;
+  });
   if (els.taskRepeat) els.taskRepeat.addEventListener('change', updateRecurrenceStartField);
   els.closeDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
   els.cancelDialogButton.addEventListener('click', () => closeDialog(els.eventDialog));
@@ -1461,7 +1466,8 @@ function handleTaskSubmit(event) {
   const date = anyDay ? '' : String(els.taskDate.value || '');
   const startTime = String(els.eventStart && els.eventStart.value || '');
   const endTime = String(els.eventEnd && els.eventEnd.value || '');
-  const recurrence = String(els.taskRepeat.value || 'none');
+  const rotating = accountElement('taskRotate').checked;
+  const recurrence = rotating ? 'weekly' : String(els.taskRepeat.value || 'none');
   const completedInput = accountElement('taskCompletedOn').value;
   if (completedInput && (!HomeboardPlanner.parseDate(completedInput) || completedInput > dateKey(new Date()))) {
     showToast('Choose a valid completion date, today or earlier.'); return;
@@ -1506,10 +1512,10 @@ function handleTaskSubmit(event) {
     anyDay,
     startTime: volunteering ? '14:00' : startTime,
     endTime: volunteering ? '17:00' : endTime,
-    assignee: String(els.taskAssignee.value || 'both'),
+    assignee: rotating ? accountElement('taskRotationStarter').value : String(els.taskAssignee.value || 'both'),
     kind: String(els.taskType.value || 'task'),
     recurrence,
-    reminder: String(els.taskReminder && els.taskReminder.value || 'day-before'),
+    reminder: anyDay || !date ? 'none' : String(els.taskReminder && els.taskReminder.value || 'day-before'),
     updatedAt: new Date(Math.max(Date.now(), previousChangeTime + 1)).toISOString(),
   };
   if (recurrence !== 'none') {
@@ -1532,8 +1538,8 @@ function handleTaskSubmit(event) {
       delete editingTask.anyDayCompleted;
     }
   }
-  updatedTask.rotate = Boolean(accountElement('taskRotate').checked && recurrence !== 'none');
-  updatedTask.rotationAnchor = editingTask && editingTask.rotationAnchor || firstRecurrenceDate || effectiveDate;
+  updatedTask.rotate = Boolean(rotating);
+  updatedTask.rotationAnchor = firstRecurrenceDate || effectiveDate;
   if (editingTask) {
     Object.assign(editingTask, updatedTask);
     if (!anyDay || recurrence === 'none') delete editingTask.nextAnyDayDate;
@@ -1580,6 +1586,8 @@ function openEventDialog(options = {}) {
   els.eventStart.value = options.startTime !== undefined ? options.startTime : task && task.startTime || '';
   els.eventEnd.value = task && task.endTime || '';
   els.taskAssignee.value = task && task.assignee || 'both';
+  accountElement('taskRotationStarter').value = plannerPeople(false).some(person => person.id === els.taskAssignee.value)
+    ? els.taskAssignee.value : plannerPeople(false)[0].id;
   els.taskType.value = task && task.kind || 'event';
   els.taskRepeat.value = task && task.recurrence || 'none';
   if (els.taskStartWeek) {
@@ -1589,6 +1597,7 @@ function openEventDialog(options = {}) {
       : '';
   }
   if (els.taskReminder) els.taskReminder.value = task && task.reminder || 'day-before';
+  updateTaskRotationFields();
   updateAnyDayField();
   updateRecurrenceStartField();
   updateTimeClearButtons();
@@ -1618,6 +1627,29 @@ function updateAnyDayField() {
   els.taskDate.required = !anyDay;
   if (anyDay) els.taskDate.value = '';
   else if (!els.taskDate.value) els.taskDate.value = dateKey(state.weekStart);
+  updateTaskReminderField();
+  updateRecurrenceStartField();
+}
+
+function updateTaskReminderField() {
+  const available = !els.taskAnyDay.checked && Boolean(els.taskDate.value);
+  accountElement('taskReminderFields').hidden = !available;
+  accountElement('taskReminderHint').hidden = available;
+  els.taskReminder.disabled = !available;
+  els.taskReminder.querySelector('option[value="day-before"]').disabled = !available;
+  if (!available) els.taskReminder.value = 'none';
+}
+
+function updateTaskRotationFields() {
+  const rotating = accountElement('taskRotate').checked;
+  accountElement('taskRotationFields').hidden = !rotating;
+  accountElement('taskRotationStarter').disabled = !rotating;
+  els.taskAssignee.disabled = rotating;
+  els.taskRepeat.disabled = rotating;
+  if (rotating) {
+    els.taskRepeat.value = 'weekly';
+    els.taskAssignee.value = accountElement('taskRotationStarter').value;
+  }
   updateRecurrenceStartField();
 }
 
@@ -3592,7 +3624,7 @@ function normalizeTask(task) {
     delete normalized.recurrenceStartWeek;
     delete normalized.recurrenceStartDate;
   }
-  normalized.reminder = normalized.reminder || 'day-before';
+  normalized.reminder = normalized.anyDay || !normalized.date ? 'none' : normalized.reminder || 'day-before';
   delete normalized.time;
   return normalized;
 }

@@ -17,8 +17,11 @@
     const anchor = task.rotationAnchor || task.recurrenceStartDate || task.anyDayDate || task.date;
     const due = occurrence && occurrence !== 'any-day' ? occurrence : task.nextAnyDayDate || task.date || anchor;
     if (!anchor || !due) return people[first % people.length].id;
-    let cursor = parseDate(anchor); const target = parseDate(due); let count = 0;
-    while (cursor && target && cursor < target && count < 2400) { cursor = nextDate(cursor, task.recurrence); count++; }
+    const start = parseDate(anchor), target = parseDate(due);
+    if (!start || !target) return people[first].id;
+    // Calendar weeks, not completion counts or elapsed hours (DST changes).
+    const week = date => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() - (date.getDay() + 6) % 7);
+    const count = Math.max(0, Math.round((week(target) - week(start)) / 604800000));
     return people[(first + count) % people.length].id;
   }
   function label(id, profile) {

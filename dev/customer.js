@@ -18,6 +18,10 @@ function populatePeopleChoices() {
   const current = els.taskAssignee.value;
   els.taskAssignee.innerHTML = plannerPeople(true).map(person => `<option value="${escapeAttribute(person.id)}">${escapeHtml(person.name)}</option>`).join('');
   els.taskAssignee.value = current || 'both';
+  const starter = accountElement('taskRotationStarter');
+  const selected = starter.value;
+  starter.innerHTML = plannerPeople(false).map(person => `<option value="${escapeAttribute(person.id)}">${escapeHtml(person.name)}</option>`).join('');
+  starter.value = plannerPeople(false).some(person => person.id === selected) ? selected : plannerPeople(false)[0].id;
 }
 function plannerIsWritable() {
   if (IS_DEMO_HOST || MANUAL_SYNC_CONFIG_ALLOWED) return true;

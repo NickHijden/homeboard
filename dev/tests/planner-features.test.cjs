@@ -21,6 +21,15 @@ test('profile reconciliation preserves stable IDs and chooses the newer names',(
   assert.equal(p.newerProfile(old,recent),recent);
   assert.deepEqual(p.members({members:[{id:'me',name:'Alex'},{id:'me',name:'Duplicate'},{id:'both',name:'Wrong'},{id:'<img>',name:'Unsafe'}]}),[{id:'me',name:'Alex'}]);
 });
+
+test('weekly turns start with the chosen person and stay stable within Monday weeks across DST',()=>{
+  const profile={members:[{id:'me',name:'Nick'},{id:'partner',name:'Stephany'}]};
+  const task={assignee:'partner',rotate:true,recurrence:'weekly',rotationAnchor:'2026-10-21'};
+  for(const [date,id] of [['2026-10-21','partner'],['2026-10-25','partner'],['2026-10-26','me'],['2026-11-01','me'],['2026-11-02','partner'],['2026-11-09','me']]) {
+    assert.equal(p.assignee(task,profile,date),id);
+  }
+  assert.equal(p.assignee({...task,anyDay:true,nextAnyDayDate:'2026-11-02',lastCompletedOn:'2026-10-29'},profile),'partner');
+});
 test('quiet evening boundaries support an overnight interval',()=>{
   assert.equal(p.quietAt('21:00','21:00','07:00'),true);assert.equal(p.quietAt('06:59','21:00','07:00'),true);
   assert.equal(p.quietAt('07:00','21:00','07:00'),false);assert.equal(p.quietAt('15:00','21:00','07:00'),false);
