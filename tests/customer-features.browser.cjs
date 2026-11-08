@@ -125,6 +125,25 @@ test('task decorations restore curry and monkey and follow rotated assignments',
  });
  assert.deepEqual(icons,['🍛','🐒',null]);
 });
+test('browsing calendar weeks moves flexible rotating chores between people and their emojis',async t=>{
+  const data=blank();
+  data.profile.members=[{id:'me',name:'Nick'},{id:'partner',name:'Stephany'}];
+  data.tasks=[{id:'weekly-turn',title:'Weekly turn',kind:'task',anyDay:true,rotate:true,assignee:'me',recurrence:'weekly',rotationAnchor:'2026-10-05',recurrenceStartDate:'2026-10-05',recurrenceStartWeek:'2026-10-05',anyDayDate:'2026-10-05',nextAnyDayDate:'2026-10-05',updatedAt:'2026-10-05T10:00:00Z'}];
+  const {page}=await open(t,{cloud:{data}});
+  const shown=()=>page.locator('#anyDayBoard .any-day-row').evaluate(row=>({name:row.querySelector('.any-day-label').textContent,emoji:row.querySelector('.assignee-decoration').textContent,chip:row.querySelector('.assignee-chip').textContent.trim()}));
+  assert.deepEqual(await shown(),{name:'Nick',emoji:'🍛',chip:'Nick'});
+  await page.locator('#nextWeekButton').click();
+  assert.deepEqual(await shown(),{name:'Stephany',emoji:'🐒',chip:'Stephany'});
+  await page.locator('#nextWeekButton').click();
+  assert.deepEqual(await shown(),{name:'Nick',emoji:'🍛',chip:'Nick'});
+  await page.getByRole('button',{name:'Previous week',exact:true}).click();
+  assert.deepEqual(await shown(),{name:'Stephany',emoji:'🐒',chip:'Stephany'});
+  assert.deepEqual(await page.evaluate(()=>{const t=state.data.tasks[0];return [t.assignee,t.rotationAnchor,t.nextAnyDayDate]}),['me','2026-10-05','2026-10-05']);
+  await page.reload();await page.waitForFunction(()=>householdState.loaded&&!syncState.busy);
+  await page.locator('#nextWeekButton').click();
+  assert.deepEqual(await shown(),{name:'Stephany',emoji:'🐒',chip:'Stephany'});
+});
+
 test('taking turns chooses the starter, repeats weekly, and preserves the choice after editing and reload',async t=>{
   const {page}=await open(t);
   await page.locator('#addTaskButton').click();
