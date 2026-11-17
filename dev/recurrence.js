@@ -199,6 +199,23 @@
     const task=(tasks||[]).find(task=>task.id===row.taskId);
     return Boolean(task && task.kind==='task' && task.anyDay && isRecurringTask(task));
   }
+  // A completion can arrive after another device recorded a missed week.
+  // Match stable task IDs and calendar weeks, never titles or upload times.
+  function completedInMissedWeek(row, history) {
+    const week = parseCompletionDate(row.weekStart);
+    if (!week) return false;
+    const end = dateKey(addDays(week, 6));
+    return (history || []).some(entry => {
+      if (!entry || entry.taskId !== row.taskId || !parseCompletionDate(entry.completedDate) || entry.completedDate > end) return false;
+      const occurrence = parseCompletionDate(entry.occurrenceDate);
+      if (!occurrence) return entry.completedDate >= row.weekStart;
+      const scheduled = dateKey(occurrence);
+      // Same-week completion also resolves an overdue occurrence carried here.
+      // An early completion of a future occurrence must not clear an older one.
+      return scheduled <= end && (entry.completedDate >= row.weekStart || scheduled >= row.weekStart);
+    });
+  }
+
   function missedHistory(data, currentWeekStart) {
     const boundary = dateKey(startOfWeek(currentWeekStart));
     const rows = new Map();
@@ -215,11 +232,7 @@
         while (due && dateKey(due) < boundary && guard++ < 520) {
           const key = dateKey(due);
           const week = startOfWeek(due), end = dateKey(addDays(week, 6));
-          const done = task.anyDay
-            ? (data.anyDayCompletions || []).some(entry => entry.taskId === task.id
-              && (entry.occurrenceDate || entry.completedDate) === key && entry.completedDate <= end)
-            : Boolean((data.completions || {})[task.id + '::' + key])
-              && (!(data.completions[task.id + '::' + key]).completedDate || data.completions[task.id + '::' + key].completedDate <= end);
+          const done = completedInMissedWeek({taskId:task.id,weekStart:dateKey(week)}, data.anyDayCompletions);
           if (done) { due = addRecurringDate(due, task.recurrence); continue; }
           const id = task.id + '::' + key;
           if (!rows.has(id)) rows.set(id, {id, taskId:task.id, title:task.title, assignee:task.assignee,
@@ -229,7 +242,7 @@
         }
       });
     });
-    return Array.from(rows.values());
+    return Array.from(rows.values()).filter(row => !isFlexibleMissed(row, data.tasks) || !completedInMissedWeek(row, data.anyDayCompletions));
   }
 
   function lastCompletion(data, task) {
@@ -245,6 +258,7 @@
   }
 
   return {
+    completedInMissedWeek,
     isFlexibleMissed,
     missedHistory,
     lastCompletion,

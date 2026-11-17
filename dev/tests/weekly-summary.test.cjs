@@ -53,3 +53,27 @@ test('weekly delivery authenticates, isolates recipients, deduplicates and repor
  claims.clear();providerFails=true;assert.equal((await (await handler(request())).json()).failed,2);
  assert.deepEqual(statuses,['accepted','accepted','failed','failed']);
 });
+
+
+test('Sunday completions repair stale missed rows by task ID and week, including legacy and carried occurrences',()=>{
+ const row=(id,week)=>({id:id+'::'+week,taskId:id,title:'Laundry',anyDay:true,recurrence:'weekly',weekStart:week,occurrenceDate:week});
+ const data={tasks:[],missedOccurrences:[row('a','2026-11-09'),row('b','2026-11-09'),row('c','2026-11-09'),row('a','2026-11-02'),row('other','2026-11-09')],anyDayCompletions:[
+  {taskId:'a',occurrenceDate:'2026-11-09',completedDate:'2026-11-15',completedAt:'2026-11-16T10:00:00Z'},
+  {taskId:'b',completedDate:'2026-11-15'},
+  {taskId:'c',occurrenceDate:'2026-11-02',completedDate:'2026-11-15'}]};
+ assert.deepEqual(recurrence.missedHistory(data,new Date(2026,10,16)).map(r=>r.id),['a::2026-11-02','other::2026-11-09']);
+ // A stale device merging the same rows back cannot resurrect the false badges.
+ assert.equal(recurrence.missedHistory(data,new Date(2026,10,16)).length,2);
+ data.anyDayCompletions.push({taskId:'other',occurrenceDate:'2026-11-09',completedDate:'2026-11-16'});
+ assert.equal(recurrence.missedHistory(data,new Date(2026,10,16)).length,2);
+});
+
+test('legacy Sunday completion prevents reconstruction of a false missed week',()=>{
+ const data={tasks:[task('legacy',{nextAnyDayDate:'2026-11-16',anyDayDate:'2026-11-09',lastMissedAnyDayDate:'2026-11-09'})],anyDayCompletions:[{taskId:'legacy',completedDate:'2026-11-15'}]};
+ assert.deepEqual(recurrence.missedHistory(data,new Date(2026,10,16)),[]);
+});
+
+test('early completion of a future occurrence does not clear an earlier missed week',()=>{
+ const row={id:'a::2026-11-09',taskId:'a',anyDay:true,recurrence:'weekly',weekStart:'2026-11-09',occurrenceDate:'2026-11-09'};
+ assert.deepEqual(recurrence.missedHistory({tasks:[],missedOccurrences:[row],anyDayCompletions:[{taskId:'a',occurrenceDate:'2026-11-16',completedDate:'2026-11-15'}]},new Date(2026,10,16)),[row]);
+});

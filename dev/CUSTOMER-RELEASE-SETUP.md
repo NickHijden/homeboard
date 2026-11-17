@@ -4,6 +4,7 @@ This release targets Development. Install the backend before replacing an older 
 
 ## Decisions
 
+- Email troubleshooting must retain Supabase and Brevo without extra costs (operator decision, 2026-11-01). Do not require a paid domain or switch to Gmail SMTP as the next step.
 - Keep recovery simple: ordinary email/password recovery, no customer recovery phrase.
 - The application administrator can manage household metadata and access passes. RLS prevents an administrator who is not a member from reading household planners through customer APIs. A database operator still has technical access; this is not end-to-end encryption.
 - One six-calendar-month pass covers the household. First activation is free while launch access is enabled. Renewals require the Homeboard operator's approval; an owner cannot grant themselves another free period. Paid checkout is disabled.
@@ -33,7 +34,7 @@ Configure these Edge Function secrets in Supabase, never in the browser or this 
 | `HOMEBOARD_ALLOWED_ORIGINS` | `https://nickhijden.github.io` |
 | `HOMEBOARD_OPERATOR_EMAIL` | Your address for owner renewal requests |
 
-Supabase supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` inside the function. The service-role key must never enter app source. Customer notifications contain a generic update notice and link; planner titles, descriptions and notes are excluded. Recipients are resolved from verified household membership. Invitation delivery failure returns a usable manual link to its authorized owner without claiming email delivery succeeded.
+Supabase supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` inside the function. The service-role key must never enter app source. The prepared November 1 update sends code-only invitation/pass emails and link-free change notifications. When the member ticks the notification checkbox, the item title and added/updated action are shared; descriptions and notes are excluded. Deploy the regenerated household-email/dashboard.ts before publishing the matching frontend. Recipients are resolved from verified household membership. Invitation delivery failure returns a usable manual link to its authorized owner without claiming email delivery succeeded.
 
 The operator must already be in the existing `platform_admins` allowlist. Approval sends a new activation code to the verified current owner; a renewal request alone does not extend access. A received code is single-use, tied to that household and email, and expires after 30 days.
 
@@ -53,6 +54,20 @@ In Development → Authentication → SMTP settings, enable custom SMTP with hos
 
 If a signup-confirmation email is missing, use **Resend confirmation email** in Homeboard with the signup address. A successful request does not prove inbox delivery; review Brevo Transactional → Logs and Supabase Auth logs if it is still missing. Check whether the existing Auth user is unconfirmed or already confirmed before repeating signup. An already-confirmed user should sign in or use Forgot password. Do not manually mark a customer confirmed to bypass delivery testing.
 
+For a delivery rejection, identify one actual confirmation message by subject, recipient, time and message ID, then inspect its ordered events. Invitation/pass emails use a separate API path; their success or failure does not establish the status of Auth SMTP. Do not copy confirmation URLs, tokens or SMTP keys into diagnostic reports. If a matching confirmation message reached Brevo and received a downstream rejection, changing the SMTP credentials or Supabase source-IP authorization is not supported by that evidence.
+
+Brevo documents automatic rewriting of free-provider senders to a Brevo-owned address. A verified personal sender is not by itself proof of an invalid setup; inspect the actual resulting sender before changing it. Do not manually configure a guessed replacement address. The SMTP login may legitimately have the form `[ID]@smtp-brevo.com`. See [Brevo sender requirements](https://help.brevo.com/hc/en-us/articles/14925263522578-Comply-with-Gmail-Yahoo-and-Microsoft-s-requirements-for-email-senders) and [SMTP troubleshooting](https://help.brevo.com/hc/en-us/articles/115000188150-Troubleshooting-Issues-with-Brevo-SMTP).
+
+Check the affected recipient in Brevo's **Blocked or Unsubscribed contacts** if delivery stops after a rejection. A hard bounce can cause suppression; inspect the recorded reason before changing that status, and preserve intentional unsubscribes and complaints. A `554` spam response alone does not identify content, sender authentication, link reputation or sending IP as the cause. A `452` sending-server block concerns the mail delivery leg, not automatically the Edge Function's changing outgoing API IP. Brevo's **Anonymous email tracking** still tracks opens/clicks and must not be described as disabling tracking. Live Auth templates and tracking settings are dashboard configuration, not controlled by this repository. See [Brevo bounce behavior](https://help.brevo.com/hc/en-us/articles/209435165-What-are-soft-bounces-and-hard-bounces-in-email) and [tracking documentation](https://help.brevo.com/hc/en-us/articles/11643306229906-Can-I-anonymize-the-tracking-of-opens-and-clicks-for-my-emails).
+
+### Development confirmation template
+
+Read-only Brevo inspection on November 1 found that the failing confirmation's HTML link was replaced with a click-tracking URL, whereas the delivered invitation used ordinary text URLs. Supabase [warns against external email tracking on authentication links](https://supabase.com/docs/guides/auth/auth-email-templates). After the operator installed the template below, a fresh confirmation was delivered at 17:57 via the same IP that had previously rejected it; its stored body contains the genuine Supabase URL and no click-tracking redirect. This validates that delivery attempt, not every provider or the receiver's precise spam-filter rule.
+
+Keep `supabase/email-templates/confirm-signup.html` as the **Development** Confirm signup HTML body. The subject, sender, Brevo SMTP settings, redirect configuration and email-confirmation requirement remain in place. This template prints `{{ .ConfirmationURL }}` as visible text rather than wrapping it in an HTML anchor. A recipient may need to copy the complete URL into the browser. Do not substitute a static URL or token. Applying or restoring Auth templates is a Supabase dashboard operation; publishing frontend files does not install them. Production was not changed.
+
+Complete the customer checks by opening the newly received URL, signing in, accepting the household invitation and separately testing password recovery. No automated test or Brevo delivery event proves those steps. Future changes to the template must recheck delivery and link preservation. The assistant used the diagnostic API only for reading; the operator installed the template and requested the mail.
+
 ## 4. Publish and test Development
 
 After the backend steps succeed, publish the prepared `dev/` release only. Keep the production files unchanged. The customer flow should be:
@@ -63,7 +78,7 @@ After the backend steps succeed, publish the prepared `dev/` release only. Keep 
 4. Request the free launch pass. Open its email and sign in as the owner. The link fills in the code and opens Household access: press **Activate or extend access**. Confirm the displayed **Access until** date is six calendar months away, then refresh after at least a minute and confirm it is unchanged. Before activation the interface says **Activation required**, rather than implying a pass has expired. Customer setup never asks for a Supabase URL or key.
 5. Invite another disposable email automatically; confirm that account, then join through the link or fallback code. A used or renewed code must fail.
 6. Rename a person; assign and rotate a recurring chore. Record the actual completion date. Compare “Every 4 weeks” with “Every calendar month.” Check that a Together task appears once.
-7. Enable an entry-change notification, save, and confirm the other member receives a generic email. An unsuccessful cloud save must not send a notification.
+7. Enable an entry-change notification, save, and confirm the other verified member receives the title and added/updated action, without notes or links. An unsuccessful cloud save must not send a notification.
 8. Request renewal as owner, approve it as operator, then redeem it as owner. Check early/late extension behavior using synthetic household dates only.
 9. Test expiry: view and export remain available; edits fail in both UI and direct authenticated API writes. The operator sees metadata but cannot read a non-member household planner through customer APIs.
 10. Test Forgot password in a signed-out browser. Open the reset email, set a new password, and sign into the same existing household.
@@ -80,3 +95,33 @@ Keep the encryption key in a separate password manager/recovery location; custom
 `node scripts/restore-backup-check.cjs <encrypted-archive>` decrypts in memory and restores only into a newly created network-isolated local PostgreSQL container. It never accepts a live restore target and never ignores restore errors. The default image is `postgres:16-alpine`; managed Supabase extensions or a newer source database require a matching restore environment before this check can validate a real project. The synthetic rehearsal is a test of the tooling, not proof that a production archive is recoverable. Rehearse a real restore before calling the backup system ready.
 
 The existing `operations/database-backup-workflow.yml` is an inactive draft; do not install it while destination approval is pending. No `.github/workflows` backup job is created by this release.
+
+## November 1 mail update — prepared, not deployed
+
+Deploy the regenerated `supabase/functions/household-email/dashboard.ts` to Development, then release the matching frontend. Invitation and pass emails now use codes only. Existing invitation links remain valid. Change notifications include the explicitly shared item title, item type and added/updated action, without notes or descriptions. No actual email delivery is established by the mocked tests.
+
+Install `supabase/email-templates/reset-password.html` in Development Authentication → Emails → Reset password. It retains the dynamic ConfirmationURL as copyable text without an HTML anchor, like the working signup template. Test password recovery separately; do not claim that removing links guarantees delivery. The pass bounce cause has not been verified.
+
+Test with two verified Development household accounts: edit a synthetic task, select Email the other members, save, and inspect the other member inbox and Brevo log. The sender is not the recipient. Repeat without the checkbox and ensure no notification is sent. Test a pass code with a disposable household requiring activation. Complete physical tablet/phone checks before production.
+
+
+## November 17: corrected missed weeks and new-account operator emails
+
+Frontend release 20261117-01 rechecks missed-week records against completions by task ID and calendar week, including Sunday and older records without occurrenceDate. A late upload of an on-time completion clears the false badge; actually completing a task in a later week does not clear the earlier missed week. The same correction is bundled into weekly-summary/dashboard.ts. The existing weekly schedule/delivery issue is separate and remains unverified.
+
+Apply these backend steps separately in Production (yflzmwriknvxhwhaetuk) and Development (axfxuqihsscjekicbgkk):
+
+1. Replace weekly-summary's index.ts with supabase/functions/weekly-summary/dashboard.ts and deploy. This updates its missed-task calculation; it does not repair or verify its cron configuration.
+2. Create Edge Function signup-notifications, paste supabase/functions/signup-notifications/dashboard.ts as index.ts, deploy and turn gateway Verify JWT OFF. The handler still requires its private x-homeboard-cron-secret. It reuses the project's existing BREVO_API_KEY, HOMEBOARD_FROM_EMAIL and HOMEBOARD_WEEKLY_CRON_SECRET. If the last secret was never configured, follow supabase/weekly-summary-secret.sql and copy the returned value directly into the matching Edge secret; never paste it into chat.
+3. Run supabase/signup-notifications-install-production.sql in Production and signup-notifications-install-development.sql in Development. Never swap these files. They install private settings/delivery records and a five-minute job using the matching Vault secret. See [Supabase scheduling documentation](https://supabase.com/docs/guides/functions/schedule-functions).
+4. Create one new test account through the chosen environment. Within approximately five minutes, check the signup-notifications invocation and Brevo logs, then the inbox at nickyjim@live.nl. Verify the subject identifies Production or Development. Confirmation is not required for this operator notification, and the message states whether the email has been confirmed. Receiving the operator email does not confirm the user's email.
+
+Only accounts created after the first SQL installation qualify; rerunning installation preserves that cutoff. Claims are made on the server from auth.users, once per new account, never from a browser signup-success message. No signup trigger or Auth transaction is changed. The email contains account email, creation time and confirmation status, with no household content, passwords or tokens. No historical-account backfill is enabled.
+
+A private ledger records reserved, accepted, failed or unknown. Accepted means Brevo accepted the request, not confirmed inbox delivery. Failed/unknown/reserved records are not automatically retried because an interrupted request may already have sent mail. Check Brevo before any manual recovery; do not delete reservations blindly. Account deletion removes its ledger row. The recurring job does not depend on a browser remaining open.
+
+Read-only delivery check in SQL Editor (contains no recipient addresses):
+
+    select status, count(*) from public.homeboard_signup_notifications group by status;
+
+Local tests use synthetic Auth data and mocked email requests, including a real isolated PostgreSQL database. No live signup email or deployment of these Edge functions was performed by those tests. The Supabase plugin remains DISABLED_BY_ADMIN; backend installation requires the dashboard operator.

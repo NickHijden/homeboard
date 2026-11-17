@@ -348,3 +348,24 @@ test('expired recovery links cannot change a password',async t=>{
   assert.equal(await page.locator('#saveRecoveryPassword').isDisabled(),true);await page.locator('#cancelPasswordRecovery').click();
   assert.equal(cloud.requests.some(r=>r.method==='PUT'),false);assert.equal(await page.evaluate(()=>customerState.recovery),null);
 });
+
+
+test('Sunday completion removes stale missed badges after sync and reload while preserving genuine misses',async t=>{
+ const {page}=await open(t);
+ await page.clock.setFixedTime(new Date('2026-11-17T12:00:00Z'));
+ await page.evaluate(()=>{
+  const row=id=>({id:id+'::2026-11-09',taskId:id,title:id,anyDay:true,recurrence:'weekly',weekStart:'2026-11-09',occurrenceDate:'2026-11-09'});
+  state.data.tasks=[];
+  state.data.missedOccurrences=['Stove','Laundry','Still open'].map(row);
+  state.data.anyDayCompletions=[{id:'c1',taskId:'Stove',title:'Stove',assignee:'me',occurrenceDate:'2026-11-09',completedDate:'2026-11-15',completedAt:'2026-11-16T10:00:00Z',updatedAt:'2026-11-16T10:00:00Z'},
+   {id:'c2',taskId:'Laundry',title:'Laundry',assignee:'me',completedDate:'2026-11-15',completedAt:'2026-11-15T20:00:00Z',updatedAt:'2026-11-15T20:00:00Z'}];
+  state.weekStart=parseDate('2026-11-09');render();
+ });
+ assert.equal(await page.locator('.missed-task').count(),1);
+ assert.match(await page.locator('#missedWeekHistory').innerText(),/Still open/);
+ assert.match(await page.locator('#completedAnyDayBoard').innerText(),/Stove/);
+ await page.evaluate(async()=>{while(syncState.busy)await new Promise(r=>setTimeout(r,25));await syncNow(false);});
+ await page.reload();await page.waitForFunction(()=>householdState.loaded&&!syncState.busy);
+ await page.evaluate(()=>{state.weekStart=parseDate('2026-11-09');render();});
+ assert.equal(await page.locator('.missed-task').count(),1);
+});
