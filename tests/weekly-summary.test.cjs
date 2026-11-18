@@ -77,3 +77,13 @@ test('early completion of a future occurrence does not clear an earlier missed w
  const row={id:'a::2026-11-09',taskId:'a',anyDay:true,recurrence:'weekly',weekStart:'2026-11-09',occurrenceDate:'2026-11-09'};
  assert.deepEqual(recurrence.missedHistory({tasks:[],missedOccurrences:[row],anyDayCompletions:[{taskId:'a',occurrenceDate:'2026-11-16',completedDate:'2026-11-15'}]},new Date(2026,10,16)),[row]);
 });
+
+test('missed badges collapse multiple dates for one task-week, retaining distinct tasks and weeks',()=>{
+ const row=(id,taskId,weekStart,occurrenceDate)=>({id,taskId,weekStart,occurrenceDate,anyDay:true,recurrence:'weekly',title:'Toilet'});
+ const rows=[row('a','toilet','2026-11-09','2026-11-09'),row('b','toilet','2026-11-09','2026-11-12'),row('c','other-toilet','2026-11-09','2026-11-09'),row('d','toilet','2026-11-02','2026-11-02')];
+ const data={tasks:[],missedOccurrences:rows};
+ const clean=recurrence.missedHistory(data,new Date(2026,10,16));
+ assert.deepEqual(clean.map(r=>r.id),['a','c','d']);
+ assert.deepEqual(recurrence.uniqueMissedWeeks(rows.slice().reverse()).map(r=>r.id).sort(),['a','c','d']);
+ assert.equal(recurrence.missedHistory({...data,missedOccurrences:clean.concat(rows)},new Date(2026,10,16)).length,3);
+});

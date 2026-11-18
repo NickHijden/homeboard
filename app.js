@@ -15,7 +15,7 @@ const ACCOUNT_RESET_KEY = `homeboard-account-reset-v1${STORAGE_NAMESPACE}`;
 const HOUSEHOLD_DELETED_KEY = `homeboard-household-deleted-v1${STORAGE_NAMESPACE}:`;
 let storageGeneration = readStorageGeneration();
 const SYNC_POLL_MS = 15000;
-const APP_VERSION = '20261117-01';
+const APP_VERSION = '20261118-01';
 // Bump independently of the app when the acknowledged wording changes.
 const PRIVACY_TERMS_VERSION = '2026-10-08-draft-1';
 const PRODUCTION_SUPABASE_URL = 'https://yflzmwriknvxhwhaetuk.supabase.co';
@@ -707,7 +707,7 @@ function taskHistoryDueLabel(value, today = new Date()) {
 
 function renderMissedHistory() {
   const target=accountElement('missedWeekHistory');
-  const rows=(state.data.missedOccurrences||[]).filter(row=>row.weekStart===dateKey(state.weekStart) && HomeboardRecurrence.isFlexibleMissed(row,state.data.tasks) && !HomeboardRecurrence.completedInMissedWeek(row,state.data.anyDayCompletions));
+  const rows=HomeboardRecurrence.uniqueMissedWeeks(state.data.missedOccurrences).filter(row=>row.weekStart===dateKey(state.weekStart) && HomeboardRecurrence.isFlexibleMissed(row,state.data.tasks) && !HomeboardRecurrence.completedInMissedWeek(row,state.data.anyDayCompletions));
   target.hidden=!rows.length;
   target.innerHTML='<div class="missed-heading"><span class="eyebrow">GEMIST DEZE WEEK</span><span>Terugkerende taken zonder vaste dag</span></div><div class="missed-items">'+rows.map(row=>'<span class="missed-task"><span class="missed-badge">Missed</span><span>'+escapeHtml(row.title)+'</span></span>').join('')+'</div>';
 }

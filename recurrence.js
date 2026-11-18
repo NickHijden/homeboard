@@ -216,6 +216,18 @@
     });
   }
 
+  function uniqueMissedWeeks(rows) {
+    const weeks = new Map();
+    (rows || []).forEach(row => {
+      if (!row || !row.taskId || !row.weekStart) return;
+      const key = JSON.stringify([row.taskId, row.weekStart]);
+      const previous = weeks.get(key);
+      // Prefer the latest snapshot; break ties deterministically across devices.
+      if (!previous || String(row.updatedAt || '') > String(previous.updatedAt || '')
+        || (String(row.updatedAt || '') === String(previous.updatedAt || '') && String(row.id) < String(previous.id))) weeks.set(key, row);
+    });
+    return Array.from(weeks.values());
+  }
   function missedHistory(data, currentWeekStart) {
     const boundary = dateKey(startOfWeek(currentWeekStart));
     const rows = new Map();
@@ -242,7 +254,7 @@
         }
       });
     });
-    return Array.from(rows.values()).filter(row => !isFlexibleMissed(row, data.tasks) || !completedInMissedWeek(row, data.anyDayCompletions));
+    return uniqueMissedWeeks(Array.from(rows.values())).filter(row => !isFlexibleMissed(row, data.tasks) || !completedInMissedWeek(row, data.anyDayCompletions));
   }
 
   function lastCompletion(data, task) {
@@ -258,6 +270,7 @@
   }
 
   return {
+    uniqueMissedWeeks,
     completedInMissedWeek,
     isFlexibleMissed,
     missedHistory,
