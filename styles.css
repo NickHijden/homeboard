@@ -678,3 +678,11 @@ html.privacy-page, html.privacy-page body { height: auto; min-height: 100%; over
 .missed-task { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; color: #545968; border: 1px solid #eee6e8; background: #fff; padding: 5px 8px; border-radius: 9px; font-size: 11px; overflow-wrap: anywhere; }
 .missed-badge { color: #a82738; background: #fff1f2; border-radius: 5px; padding: 2px 5px; font-size: 10px; flex-shrink: 0; }
 @media (max-width: 520px) { .history-columns { grid-template-columns: minmax(0,1fr); } }
+
+.household-photo-control { flex: 1 1 280px; min-width: 0; max-width: 550px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.household-photo-button { border: 1px dashed var(--violet); color: var(--violet); background: transparent; border-radius: 10px; min-width: 44px; min-height: 44px; font-size: 25px; cursor: pointer; padding: 0; overflow: hidden; }
+.household-photo-button.has-photo { width: 100%; border: 0; min-height: 0; background: transparent; }
+.household-photo-button img { display: block; width: 100%; height: auto; }
+.household-photo-button img[hidden] { display: none; }
+.household-photo-control .field-hint { text-align: center; margin: 0; }
+.quiet-evening .household-photo-control { display: none; }

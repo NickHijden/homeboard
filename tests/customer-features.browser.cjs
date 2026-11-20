@@ -369,3 +369,18 @@ test('Sunday completion removes stale missed badges after sync and reload while 
  await page.evaluate(()=>{state.weekStart=parseDate('2026-11-09');render();});
  assert.equal(await page.locator('.missed-task').count(),1);
 });
+
+test('household photo starts empty, uploads, survives sync and reload, and can be removed',async t=>{
+ const {page}=await open(t);
+ assert.equal(await page.locator('#householdPhoto').isVisible(),false);
+ assert.equal(await page.locator('#householdPhotoPlus').isVisible(),true);
+ await page.locator('#householdPhotoFile').setInputFiles({name:'photo.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')});
+ await page.waitForFunction(()=>Boolean(state.data.profile.photo));
+ assert.match(await page.locator('#householdPhoto').getAttribute('src'),/^data:image\/jpeg;base64,/);
+ await page.evaluate(async()=>{while(syncState.busy)await new Promise(r=>setTimeout(r,25));await syncNow(false);});
+ await page.reload();await page.waitForFunction(()=>householdState.loaded&&!syncState.busy);
+ assert.equal(await page.locator('#householdPhoto').isVisible(),true);
+ await page.locator('#removeHouseholdPhoto').click();
+ assert.equal(await page.locator('#householdPhoto').isVisible(),false);
+ assert.equal(await page.evaluate(()=>state.data.profile.photo),'');
+});

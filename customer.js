@@ -45,6 +45,9 @@ function signupReturnUrl() {
   return url.toString();
 }
 function initializeCustomerFeatures() {
+  accountElement('chooseHouseholdPhoto').addEventListener('click',()=>{if(canEditPlanner())accountElement('householdPhotoFile').click();});
+  accountElement('householdPhotoFile').addEventListener('change', uploadHouseholdPhoto);
+  accountElement('removeHouseholdPhoto').addEventListener('click',()=>{if(canEditPlanner())saveHouseholdPhoto('');});
   customerState.initialized = true;
   accountElement('dismissNotification').addEventListener('click',()=>{accountElement('notificationBanner').hidden=true;});
   try { customerState.preferences = JSON.parse(localStorage.getItem('homeboard-display-v1'+STORAGE_NAMESPACE)) || {}; } catch (error) { /* Device defaults. */ }
@@ -131,6 +134,7 @@ function initializeCustomerFeatures() {
   render();
 }
 function renderCustomerFeatures() {
+  if (customerState.initialized) renderHouseholdPhoto();
   if (!customerState.initialized) return;
   if(activePlannerScope && !customerState.access[activePlannerScope]) {
     try { const cached=JSON.parse(localStorage.getItem('homeboard-access:'+activePlannerScope)); if(cached && cached.expires_at)customerState.access[activePlannerScope]=cached; } catch(ignore) { /* No verified cache. */ }
@@ -187,7 +191,7 @@ function saveHouseholdPeople() {
   const names = accountElement('householdPeople').value.split('\n').map(x=>x.trim()).filter(Boolean);
   if (!names.length || names.length > 12 || names.some(name=>name.length>60)) { showToast('Enter 1–12 names, each up to 60 characters.'); return; }
   const old = plannerPeople(false);
-  state.data.profile = { members:names.map((name,i)=>({id:old[i] ? old[i].id : 'member-'+createId(),name})), updatedAt:nowIso() };
+  state.data.profile = Object.assign({}, state.data.profile, { members:names.map((name,i)=>({id:old[i] ? old[i].id : 'member-'+createId(),name})), updatedAt:nowIso() });
   populatePeopleChoices(); persist(); render(); showToast('Household names saved.');
 }
 function applyRecordedCompletion(task, value) {
@@ -457,4 +461,36 @@ async function finishPasswordRecovery(event) {
     openDialog(els.settingsDialog);setSyncStatus('Password updated. Sign in with your new password to open your existing household.','connected');
   }catch(error){if(current() && customerState.recovery===recovery)accountElement('passwordRecoveryStatus').textContent='The password update could not be confirmed. Try the new password or request another reset link.';}
   finally{recovery.busy=false;accountElement('recoveryPassword').value='';accountElement('recoveryPasswordAgain').value='';accountElement('cancelPasswordRecovery').disabled=false;accountElement('saveRecoveryPassword').disabled=!customerState.recovery || !customerState.recovery.verified;}
+}
+
+function saveHouseholdPhoto(photo) {
+  state.data.profile = Object.assign({},state.data.profile,{photo,updatedAt:new Date(Math.max(Date.now(),(Date.parse(state.data.profile && state.data.profile.updatedAt)||0)+1)).toISOString()});
+  persist();render();
+}
+function renderHouseholdPhoto() {
+  const photo=state.data.profile && state.data.profile.photo;
+  const valid=typeof photo==='string' && photo.length<400000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(photo);
+  const img=accountElement('householdPhoto');
+  if(valid){if(img.getAttribute('src')!==photo)img.src=photo;}else img.removeAttribute('src');
+  img.hidden=!valid;accountElement('householdPhotoPlus').hidden=valid;
+  accountElement('removeHouseholdPhoto').hidden=!valid;
+  accountElement('chooseHouseholdPhoto').classList.toggle('has-photo',valid);
+  accountElement('chooseHouseholdPhoto').setAttribute('aria-label',valid?'Change household photo':'Add household photo');
+  accountElement('householdPhotoHint').hidden=valid;
+}
+async function uploadHouseholdPhoto() {
+  const input=accountElement('householdPhotoFile'),file=input.files[0];input.value='';
+  if(!file || !canEditPlanner())return;
+  if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>10*1024*1024){showToast('Choose a JPG, PNG or WebP photo under 10 MB.');return;}
+  const current=customerContext(),url=URL.createObjectURL(file);
+  try {
+    const img=await new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=reject;image.src=url;});
+    if(!current()||!plannerIsWritable())return;
+    const canvas=document.createElement('canvas');canvas.width=1100;canvas.height=100;
+    const ctx=canvas.getContext('2d');const scale=Math.max(1100/img.naturalWidth,100/img.naturalHeight);
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,1100,100);
+    ctx.drawImage(img,(1100-img.naturalWidth*scale)/2,(100-img.naturalHeight*scale)/2,img.naturalWidth*scale,img.naturalHeight*scale);
+    saveHouseholdPhoto(canvas.toDataURL('image/jpeg',0.8));showToast('Household photo saved.');
+  }catch(error){if(current())showToast('This photo could not be opened. Try a JPG or PNG.');}
+  finally{URL.revokeObjectURL(url);}
 }
