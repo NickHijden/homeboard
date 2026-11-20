@@ -471,7 +471,31 @@ function renderHouseholdPhoto() {
   const photo=state.data.profile && state.data.profile.photo;
   const valid=typeof photo==='string' && photo.length<400000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(photo);
   const img=accountElement('householdPhoto');
-  if(valid){if(img.getAttribute('src')!==photo)img.src=photo;}else img.removeAttribute('src');
+  if(valid){
+    if(img.dataset.source!==photo){
+      img.dataset.source=photo;img.src=photo;
+      const original=new Image();original.onload=()=>{
+        if(img.dataset.source!==photo)return;
+        const canvas=document.createElement('canvas');canvas.width=original.naturalWidth;canvas.height=original.naturalHeight;
+        const ctx=canvas.getContext('2d');ctx.drawImage(original,0,0);
+        const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+        let left=canvas.width,top=canvas.height,right=-1,bottom=-1;
+        for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++){
+          const i=(y*canvas.width+x)*4;
+          if(pixels[i+3]>10 && (pixels[i]<245||pixels[i+1]<245||pixels[i+2]<245)){
+            left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);
+          }
+        }
+        if(right>=left){
+          left=Math.max(0,left-4);top=Math.max(0,top-4);right=Math.min(canvas.width-1,right+4);bottom=Math.min(canvas.height-1,bottom+4);
+          const view=document.createElement('canvas');view.width=right-left+1;view.height=bottom-top+1;
+          view.getContext('2d').drawImage(canvas,left,top,view.width,view.height,0,0,view.width,view.height);
+          img.src=view.toDataURL('image/png');
+        }
+        img.dataset.ready='true';
+      };delete img.dataset.ready;original.src=photo;
+    }
+  }else {img.removeAttribute('src');delete img.dataset.source;delete img.dataset.ready;}
   img.hidden=!valid;accountElement('householdPhotoPlus').hidden=valid;
   accountElement('removeHouseholdPhoto').hidden=!valid;
   accountElement('chooseHouseholdPhoto').classList.toggle('has-photo',valid);

@@ -682,7 +682,9 @@ html.privacy-page, html.privacy-page body { height: auto; min-height: 100%; over
 .household-photo-control { flex: 1 1 0; min-width: 0; align-self: stretch; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .household-photo-button { border: 1px dashed var(--violet); color: var(--violet); background: transparent; border-radius: 10px; min-width: 44px; min-height: 44px; font-size: 25px; cursor: pointer; padding: 0; overflow: hidden; }
 .household-photo-button.has-photo { width: 100%; height: 100%; border: 0; min-height: 0; background: transparent; border-radius: 0; }
-.household-photo-button img { display: block; width: 100%; height: 90px; object-fit: contain; }
+.household-photo-button img { display: block; width: 100%; height: 180px; object-fit: contain; }
 .household-photo-button img[hidden] { display: none; }
 .household-photo-control .field-hint { text-align: center; margin: 0; }
 .quiet-evening .household-photo-control { display: none; }
+
+@media (max-width: 600px) { .household-photo-button img { height: 110px; } }

@@ -376,7 +376,7 @@ test('household photo starts empty, uploads, survives sync and reload, and can b
  assert.equal(await page.locator('#householdPhotoPlus').isVisible(),true);
  await page.locator('#householdPhotoFile').setInputFiles({name:'photo.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')});
  await page.waitForFunction(()=>Boolean(state.data.profile.photo));
- assert.match(await page.locator('#householdPhoto').getAttribute('src'),/^data:image\/jpeg;base64,/);
+ assert.match(await page.locator('#householdPhoto').getAttribute('src'),/^data:image\/(jpeg|png);base64,/);
  await page.locator('#householdPhoto').evaluate(img=>img.decode());
  assert.equal(await page.locator('#householdPhoto').evaluate(img=>img.naturalWidth/img.naturalHeight),1);
  assert.equal(await page.locator('#householdPhoto').evaluate(img=>getComputedStyle(img).objectFit),'contain');
@@ -388,4 +388,15 @@ test('household photo starts empty, uploads, survives sync and reload, and can b
  await page.locator('#removeHouseholdPhoto').click();
  assert.equal(await page.locator('#householdPhoto').isVisible(),false);
  assert.equal(await page.evaluate(()=>state.data.profile.photo),'');
+});
+
+test('padded household illustration fills the header without losing the stored original',async t=>{
+ const {page}=await open(t);
+ await page.locator('#householdPhotoFile').setInputFiles(path.join(root,'assets/homeboard-banner.png'));
+ await page.waitForFunction(()=>document.querySelector('#householdPhoto').dataset.ready==='true');
+ await page.locator('#householdPhoto').evaluate(img=>img.decode());
+ assert.ok(await page.locator('#householdPhoto').evaluate(img=>img.naturalWidth/img.naturalHeight)>2.5);
+ assert.match(await page.evaluate(()=>state.data.profile.photo),/^data:image\/jpeg;base64,/);
+ fs.mkdirSync(path.join(root,'tmp/photo-qa'),{recursive:true});
+ await page.screenshot({path:path.join(root,'tmp/photo-qa/optimized.png')});
 });
