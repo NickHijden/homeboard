@@ -7,7 +7,7 @@
     <meta name="description" content="A calm household planner for the wall tablet." />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="assets/homeboard-icon-180.png" />
-    <link rel="stylesheet" href="styles.css?v=20261120-01" />
+    <link rel="stylesheet" href="styles.css?v=20261120-02" />
     <title>Homeboard · Household planner</title>
   </head>
   <body>
@@ -23,7 +23,7 @@
             <p class="eyebrow">HOUSEHOLD PLANNER</p>
             <h1>Homeboard</h1>
             <p class="cleaning-motto">“Don’t put it down, put it away”</p>
-            <p class="app-version">Version 20261120-01</p>
+            <p class="app-version">Version 20261120-02</p>
             <span class="environment-badge" id="environmentBadge" hidden>DEVELOPMENT · LOCAL ONLY</span>
           </div>
         </div>
@@ -54,7 +54,7 @@
             <div class="household-photo-control">
               <button id="chooseHouseholdPhoto" type="button" class="household-photo-button" aria-label="Add household photo" aria-describedby="householdPhotoHint"><span id="householdPhotoPlus">+</span><img id="householdPhoto" alt="Household photo" hidden /></button>
               <span id="householdPhotoHint" class="field-hint">Add your own photo · ideally 11:1 (width:height)</span>
-              <button id="removeHouseholdPhoto" type="button" class="subtle-button" hidden>Remove photo</button>
+
               <input id="householdPhotoFile" type="file" accept="image/jpeg,image/png,image/webp" hidden />
             </div>
             <button class="text-button" id="todayButton" type="button">Jump to today</button>
@@ -294,6 +294,7 @@
           <label class="secondary-button file-button" for="importInput">Restore backup<input id="importInput" type="file" accept="application/json" /></label>
         </div>
         <div id="customerSettings"></div>
+        <button id="removeHouseholdPhoto" type="button" class="subtle-button" hidden>Remove household photo</button>
         <div class="sync-section">
           <p class="eyebrow">HOMEBOARD ACCOUNT</p>
           <p class="sync-copy" id="syncCopy">Use the same Homeboard login on both devices. The first time you open Homeboard from the iPad Home Screen, sign in there once as well; Homeboard remembers the connection on this device. Your laptop does not need to stay on.</p>
@@ -521,9 +522,9 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="recurrence.js?v=20261120-01" defer></script>
-    <script src="planner-features.js?v=20261120-01" defer></script>
-    <script src="customer.js?v=20261120-01" defer></script>
-    <script src="app.js?v=20261120-01" defer></script>
+    <script src="recurrence.js?v=20261120-02" defer></script>
+    <script src="planner-features.js?v=20261120-02" defer></script>
+    <script src="customer.js?v=20261120-02" defer></script>
+    <script src="app.js?v=20261120-02" defer></script>
   </body>
 </html>

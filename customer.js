@@ -486,11 +486,16 @@ async function uploadHouseholdPhoto() {
   try {
     const img=await new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=reject;image.src=url;});
     if(!current()||!plannerIsWritable())return;
-    const canvas=document.createElement('canvas');canvas.width=1100;canvas.height=100;
-    const ctx=canvas.getContext('2d');const scale=Math.max(1100/img.naturalWidth,100/img.naturalHeight);
-    ctx.fillStyle='#fff';ctx.fillRect(0,0,1100,100);
-    ctx.drawImage(img,(1100-img.naturalWidth*scale)/2,(100-img.naturalHeight*scale)/2,img.naturalWidth*scale,img.naturalHeight*scale);
-    saveHouseholdPhoto(canvas.toDataURL('image/jpeg',0.8));showToast('Household photo saved.');
+    const canvas=document.createElement('canvas');
+    const scale=Math.min(1,1600/img.naturalWidth,600/img.naturalHeight);
+    canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
+    const ctx=canvas.getContext('2d');
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    let photo='';
+    for(let quality=0.8;quality>=0.19;quality-=0.2){photo=canvas.toDataURL('image/jpeg',quality);if(photo.length<390000)break;}
+    if(photo.length>=390000)throw Error('Photo too large');
+    saveHouseholdPhoto(photo);showToast('Household photo saved.');
   }catch(error){if(current())showToast('This photo could not be opened. Try a JPG or PNG.');}
   finally{URL.revokeObjectURL(url);}
 }
